@@ -3,12 +3,18 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from datetime import datetime, timezone
 from typing import List, Optional
+import re
 
 from ..db import get_db
 from ..models import Space, SpaceType, ActivityType, Booking, BookingStatus
 from ..schemas import SpaceOut
 
 router = APIRouter(prefix="/spaces", tags=["spaces"])
+
+def _natural_key(name: str):
+    """Split a string into text/number chunks for natural sorting."""
+    parts = re.findall(r"\d+|\D+", name or "")
+    return [int(p) if p.isdigit() else p.lower() for p in parts]
 
 @router.get("", response_model=List[SpaceOut])
 def list_spaces(
@@ -25,7 +31,11 @@ def list_spaces(
     if q:
         like = f"%{q.lower()}%"
         query = query.filter(or_(Space.name.ilike(like), Space.description.ilike(like)))
-    return query.order_by(Space.name.asc()).all()
+
+    # Minimal change: fetch then natural-sort by name
+    spaces = query.all()
+    spaces.sort(key=lambda s: _natural_key(s.name))
+    return spaces
 
 @router.get("/{space_id}/availability")
 def availability(space_id: int, db: Session = Depends(get_db), date: Optional[str] = None):
