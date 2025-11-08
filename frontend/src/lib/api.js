@@ -69,7 +69,6 @@ function qs(params = {}) {
 // Public enums (mirrors backend)
 export const SPACE_TYPES = [
   'desk',
-  'office',
   'small_room',
   'training_room',
   'meeting_room',

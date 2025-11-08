@@ -10,15 +10,24 @@ export default function BookSpace(){
   const { user } = useAuth()
   const [space, setSpace] = useState(state?.space || null)
 
+  // Shared fields
   const [title, setTitle] = useState('')
-  const [start, setStart] = useState('') // datetime-local "YYYY-MM-DDTHH:MM"
-  const [end, setEnd] = useState('')
   const [people, setPeople] = useState(1)
   const [status, setStatus] = useState('')
+
+  // Time fields for non-desks (hourly, same day)
+  const [start, setStart] = useState('') // datetime-local
+  const [end, setEnd] = useState('')     // datetime-local
+
+  // Date fields for desks (whole days only, max 7 days)
+  const [startDate, setStartDate] = useState('') // YYYY-MM-DD
+  const [endDate, setEndDate] = useState('')     // YYYY-MM-DD
 
   // validation state
   const [timeError, setTimeError] = useState('')
   const [pastWarn, setPastWarn] = useState('')
+
+  const isDesk = (space?.type || '').toLowerCase() === 'desk'
 
   // Load space if direct navigation without state
   useEffect(()=>{
@@ -32,34 +41,91 @@ export default function BookSpace(){
     return ()=>{ mounted = false }
   }, [id, space])
 
-  // Validate times whenever start/end change
+  // Initialize dates for desk default (today → today)
+  useEffect(()=>{
+    if (!isDesk) return
+    if (!startDate || !endDate) {
+      const today = toYMD(new Date())
+      setStartDate(prev=> prev || today)
+      setEndDate(prev=> prev || today)
+    }
+  }, [isDesk, startDate, endDate])
+
+  // Validate times on change
   useEffect(()=>{
     setTimeError('')
     setPastWarn('')
 
-    if (!start || !end) return
-    const s = new Date(start)
-    const e = new Date(end)
-    if (isNaN(s.getTime()) || isNaN(e.getTime())) return
+    if (isDesk) {
+      if (!startDate || !endDate) return
+      const s = parseYMD(startDate)
+      const e = parseYMD(endDate)
+      if (!s || !e) return
 
-    if (e.getTime() <= s.getTime()) {
-      setTimeError('End must be after Start.')
+      if (e.getTime() < s.getTime()) {
+        setTimeError('End date must be the same or after start date.')
+        return
+      }
+
+      // whole-day restriction handled when building payload
+      // max 7 days (inclusive)
+      const daysInclusive = diffDaysInclusive(s, e)
+      if (daysInclusive > 7) {
+        setTimeError('Desk bookings cannot exceed 7 full days.')
+        return
+      }
+
+      // warn if start day is in the past (soft)
+      if (atStartOfDayLocal(s).getTime() < startOfTodayLocal().getTime()) {
+        setPastWarn('Start date is in the past.')
+      }
       return
     }
 
-    const now = Date.now()
-    if (s.getTime() < now) {
+    // Non-desk: must be within a single calendar day, duration in whole hours, min 1 hour
+    if (!start || !end) return
+    const sdt = new Date(start)
+    const edt = new Date(end)
+    if (isNaN(sdt.getTime()) || isNaN(edt.getTime())) return
+
+    if (!isSameLocalDay(sdt, edt)) {
+      setTimeError('Bookings (except desks) must start and end on the same day.')
+      return
+    }
+
+    const deltaMs = edt.getTime() - sdt.getTime()
+    if (deltaMs <= 0) {
+      setTimeError('End must be after Start.')
+      return
+    }
+    const oneHour = 60 * 60 * 1000
+    if (deltaMs < oneHour) {
+      setTimeError('Minimum duration is 1 hour.')
+      return
+    }
+    if (deltaMs % oneHour !== 0) {
+      setTimeError('Duration must be in whole hours.')
+      return
+    }
+
+    if (sdt.getTime() < Date.now()) {
       setPastWarn('Start time is in the past.')
     }
-  }, [start, end])
+  }, [isDesk, startDate, endDate, start, end])
 
   const submitDisabled = useMemo(()=> {
     if (!user) return true
-    if (!start || !end) return true
-    if (timeError) return true
     if (people < 1) return true
-    return false
-  }, [user, start, end, timeError, people])
+    if (isDesk) {
+      if (!startDate || !endDate) return true
+      if (timeError) return true
+      return false
+    } else {
+      if (!start || !end) return true
+      if (timeError) return true
+      return false
+    }
+  }, [user, people, isDesk, startDate, endDate, start, end, timeError])
 
   async function submit(e){
     e.preventDefault()
@@ -67,12 +133,29 @@ export default function BookSpace(){
     if (submitDisabled) return
 
     try{
+      let startLocal, endLocal
+
+      if (isDesk) {
+        // Whole-day semantics:
+        // startLocal = YYYY-MM-DDT00:00 (local)
+        // endLocal   = (endDate + 1 day)T00:00 (local)
+        const s = parseYMD(startDate)
+        const e = parseYMD(endDate)
+        const startMid = atStartOfDayLocal(s)
+        const endNextMid = atStartOfDayLocal(addDays(e, 1))
+        startLocal = toLocalInputDateTime(startMid)
+        endLocal   = toLocalInputDateTime(endNextMid)
+      } else {
+        startLocal = start
+        endLocal   = end
+      }
+
       await api.createBooking({
         space_id: space.id,
         title: title || `Booking for ${space.name}`,
-        startLocal: start,   // converted to start_utc
-        endLocal: end,       // converted to end_utc
-        peopleCount: people, // sent as multiple keys; backend picks one
+        startLocal,
+        endLocal,
+        peopleCount: people,
       })
       setStatus('Booked! 🎉')
       setTimeout(()=> nav('/bookings'), 600)
@@ -85,7 +168,10 @@ export default function BookSpace(){
     <section className="grid" style={{marginTop:12}}>
       <header className="grid" style={{gap:6}}>
         <h2 style={{margin:0}}>Book space</h2>
-        <p className="helper">You are booking: <strong>{space?.name || `#${id}`}</strong></p>
+        <p className="helper">
+          You are booking: <strong>{space?.name || `#${id}`}</strong>
+          {space?.type ? <span className="helper"> — type: {space.type}</span> : null}
+        </p>
       </header>
 
       <div className="card">
@@ -99,25 +185,58 @@ export default function BookSpace(){
             />
           </div>
 
-          <div className="grid cols-2">
-            <div className="form-row">
-              <label className="label" htmlFor="start">Start</label>
-              <input
-                id="start" className={`input ${timeError ? 'input-error' : ''}`} type="datetime-local"
-                value={start} onChange={e=>setStart(e.target.value)} required
-              />
-            </div>
-            <div className="form-row">
-              <label className="label" htmlFor="end">End</label>
-              <input
-                id="end" className={`input ${timeError ? 'input-error' : ''}`} type="datetime-local"
-                value={end} onChange={e=>setEnd(e.target.value)} required
-              />
-            </div>
-          </div>
-
-          {timeError && <div className="badge warn" role="alert">{timeError}</div>}
-          {!timeError && pastWarn && <div className="badge yellow" role="status">{pastWarn}</div>}
+          {/* Time selectors with new rules */}
+          {!isDesk ? (
+            <>
+              <div className="grid cols-2">
+                <div className="form-row">
+                  <label className="label" htmlFor="start">Start</label>
+                  <input
+                    id="start" className={`input ${timeError ? 'input-error' : ''}`} type="datetime-local"
+                    step="3600" /* 1 hour steps */
+                    value={start} onChange={e=>setStart(e.target.value)} required
+                  />
+                </div>
+                <div className="form-row">
+                  <label className="label" htmlFor="end">End</label>
+                  <input
+                    id="end" className={`input ${timeError ? 'input-error' : ''}`} type="datetime-local"
+                    step="3600" /* 1 hour steps */
+                    value={end} onChange={e=>setEnd(e.target.value)} required
+                  />
+                </div>
+              </div>
+              <p className="helper">
+                Non-desk spaces must be booked within a single day, in whole-hour increments (min 1 hour).
+              </p>
+              {timeError && <div className="badge warn" role="alert">{timeError}</div>}
+              {!timeError && pastWarn && <div className="badge yellow" role="status">{pastWarn}</div>}
+            </>
+          ) : (
+            <>
+              <div className="grid cols-2">
+                <div className="form-row">
+                  <label className="label" htmlFor="startDate">Start day</label>
+                  <input
+                    id="startDate" className={`input ${timeError ? 'input-error' : ''}`} type="date"
+                    value={startDate} onChange={e=>setStartDate(e.target.value)} required
+                  />
+                </div>
+                <div className="form-row">
+                  <label className="label" htmlFor="endDate">End day (inclusive)</label>
+                  <input
+                    id="endDate" className={`input ${timeError ? 'input-error' : ''}`} type="date"
+                    value={endDate} onChange={e=>setEndDate(e.target.value)} required
+                  />
+                </div>
+              </div>
+              <p className="helper">
+                Desks can be booked only for whole days (00:00 → next day 00:00), up to 7 full days.
+              </p>
+              {timeError && <div className="badge warn" role="alert">{timeError}</div>}
+              {!timeError && pastWarn && <div className="badge yellow" role="status">{pastWarn}</div>}
+            </>
+          )}
 
           <div className="form-row">
             <label className="label" htmlFor="people">People</label>
@@ -125,7 +244,7 @@ export default function BookSpace(){
               id="people" className="input" type="number" min="1"
               value={people} onChange={e=>setPeople(e.target.value ? Math.max(1, Number(e.target.value)) : 1)}
             />
-            <span className="helper">This is saved under a backend-supported key (e.g. people_count).</span>
+            <span className="helper">Saved under a backend-supported key (e.g., people_count).</span>
           </div>
 
           {status && <div className="badge yellow" role="status">{status}</div>}
@@ -139,4 +258,45 @@ export default function BookSpace(){
       </div>
     </section>
   )
+}
+
+/* ---------- helpers ---------- */
+function toYMD(d){
+  const y = d.getFullYear()
+  const m = String(d.getMonth()+1).padStart(2,'0')
+  const da= String(d.getDate()).padStart(2,'0')
+  return `${y}-${m}-${da}`
+}
+function parseYMD(ymd){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd || '')
+  if (!m) return null
+  const d = new Date(Number(m[1]), Number(m[2])-1, Number(m[3]), 0, 0, 0, 0)
+  return isNaN(d.getTime()) ? null : d
+}
+function atStartOfDayLocal(d){
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0,0,0,0)
+}
+function addDays(d, n){
+  const x = new Date(d.getTime())
+  x.setDate(x.getDate() + n)
+  return x
+}
+function startOfTodayLocal(){
+  const now = new Date()
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0,0,0,0)
+}
+function diffDaysInclusive(s, e){
+  const ms = atStartOfDayLocal(e).getTime() - atStartOfDayLocal(s).getTime()
+  return Math.floor(ms / (24*60*60*1000)) + 1
+}
+function isSameLocalDay(a, b){
+  return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate()
+}
+function toLocalInputDateTime(d){
+  const y = d.getFullYear()
+  const m = String(d.getMonth()+1).padStart(2,'0')
+  const da= String(d.getDate()).padStart(2,'0')
+  const hh= String(d.getHours()).padStart(2,'0')
+  const mm= String(d.getMinutes()).padStart(2,'0')
+  return `${y}-${m}-${da}T${hh}:${mm}`
 }
