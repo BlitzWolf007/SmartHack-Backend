@@ -96,7 +96,7 @@ def seed():
     db: Session = SessionLocal()
     try:
         if not db.query(User).first():
-            admin = User(email="admin@example.com", full_name="Admin User", password_hash=hash_password("Hackathon@1234"), role=Role.manager)
+            admin = User(email="admin@example.com", full_name="Admin User", password_hash=hash_password("Hackathon@1234"), role=Role.admin)
             user = User(email="test@example.com", full_name="Test User", password_hash=hash_password("Hackathon@1234"), role=Role.employee)
             db.add_all([admin, user])
 
