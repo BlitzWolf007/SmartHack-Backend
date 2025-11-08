@@ -7,16 +7,23 @@ from ..auth import create_access_token, verify_password, hash_password, get_curr
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+def _map_role(role_str: str) -> Role:
+    rs = (role_str or "").strip().lower()
+    if rs in ("admin", "manager"):
+        return Role.admin
+    return Role.employee
+
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def register(payload: UserCreate, db: Session = Depends(get_db)):
     existing = db.query(User).filter(User.email == payload.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
+    role = _map_role(payload.role)
     user = User(
         email=payload.email.strip().lower(),
         full_name=payload.full_name.strip(),
         password_hash=hash_password(payload.password),
-        role=payload.role,
+        role=role,
         avatar_url=(payload.avatar_url or None),
     )
     db.add(user)
@@ -34,5 +41,4 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
 @router.get("/verify", response_model=UserOut)
 def verify(current: User = Depends(get_current_user)):
-    # If token is valid, return user info; else dependency raises 401
     return current

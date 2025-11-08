@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query
+from ..models import Booking, Space, BookingStatus, User, Role
+
 
 from ..db import get_db
 from ..auth import get_current_user, require_admin
@@ -58,7 +60,8 @@ def create_booking(
         if overlap(start, end, b_start, b_end):
             raise HTTPException(status_code=409, detail="Time conflict with existing booking")
 
-    status = BookingStatus.pending if space.requires_approval else BookingStatus.approved
+    is_manager = current.role == Role.admin  # Role.admin is our "manager"
+    status = BookingStatus.approved if (is_manager or not space.requires_approval) else BookingStatus.pending
 
     booking = Booking(
         user_id=current.id,

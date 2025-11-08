@@ -107,6 +107,7 @@ async function handleRegister(e) {
   const full_name = $('#reg-name').value.trim();
   const email = $('#reg-email').value.trim();
   const password = $('#reg-password').value.trim();
+  const role = ($('#reg-role')?.value || 'employee');  // <-- add this line
   const avatar_url = ($('#reg-avatar').value || '').trim() || null;
 
   if (password.length < 8) { setError('#register-error','Use at least 8 characters.'); return; }
@@ -115,9 +116,8 @@ async function handleRegister(e) {
   try {
     await api('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ full_name, email, password, role:'employee', avatar_url })
+      body: JSON.stringify({ full_name, email, password, role, avatar_url }) // <-- include role
     });
-    // Auto-login after register
     const res = await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
     localStorage.setItem('token', res.access_token);
     await showApp();
@@ -127,6 +127,7 @@ async function handleRegister(e) {
     btn.disabled = false;
   }
 }
+
 
 // ---------- API loaders ----------
 async function loadMe() {

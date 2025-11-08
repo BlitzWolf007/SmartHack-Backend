@@ -45,13 +45,20 @@
         <label>Password
           <input id="reg-password" type="password" placeholder="Minimum 8 chars" required />
         </label>
+        <label>Role
+          <select id="reg-role">
+            <option value="employee">Employee</option>
+            <option value="manager">Manager</option>
+          </select>
+        </label>
         <label>Avatar URL (optional)
           <input id="reg-avatar" type="url" placeholder="https://..." />
         </label>
         <button id="register-submit" type="submit">Create account</button>
-        <p class="hint">You’ll be registered as <code>employee</code>.</p>
+        <p class="hint">Managers can approve bookings; their bookings auto-approve.</p>
         <p class="error" id="register-error"></p>
       </form>
+
     </div>
   </main>
 

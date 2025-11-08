@@ -14,10 +14,11 @@ class UserBase(BaseModel):
     avatar_url: Optional[str] = None
 
 class UserCreate(BaseModel):
+    # accept role as a plain string to allow "manager" while keeping DB enum unchanged
     email: EmailStr
     full_name: str
     password: str
-    role: Role = Role.employee
+    role: str = "employee"          # "employee" | "manager" | "admin"
     avatar_url: Optional[str] = None
 
 class UserOut(UserBase):
