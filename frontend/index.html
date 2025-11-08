@@ -11,12 +11,52 @@
     <h1>🏢 Office Planner</h1>
     <nav id="nav">
       <span id="user-info"></span>
-      <button id="btn-login">Login</button>
       <button id="btn-logout" class="hidden">Logout</button>
     </nav>
   </header>
 
-  <main class="container">
+  <!-- AUTH VIEW -->
+  <main id="auth-view" class="auth container">
+    <div class="auth-card">
+      <div class="tabs">
+        <button class="tab active" data-tab="login">Login</button>
+        <button class="tab" data-tab="register">Register</button>
+      </div>
+
+      <form id="login-form" class="tab-panel active" autocomplete="on">
+        <label>Email
+          <input id="login-email" type="email" placeholder="you@example.com" required />
+        </label>
+        <label>Password
+          <input id="login-password" type="password" placeholder="••••••••" required />
+        </label>
+        <button id="login-submit" type="submit">Log in</button>
+        <p class="hint">Demo: <code>test@example.com</code> / <code>Hackathon@1234</code></p>
+        <p class="error" id="login-error"></p>
+      </form>
+
+      <form id="register-form" class="tab-panel" autocomplete="on">
+        <label>Full name
+          <input id="reg-name" type="text" placeholder="Jane Doe" required />
+        </label>
+        <label>Email
+          <input id="reg-email" type="email" placeholder="you@example.com" required />
+        </label>
+        <label>Password
+          <input id="reg-password" type="password" placeholder="Minimum 8 chars" required />
+        </label>
+        <label>Avatar URL (optional)
+          <input id="reg-avatar" type="url" placeholder="https://..." />
+        </label>
+        <button id="register-submit" type="submit">Create account</button>
+        <p class="hint">You’ll be registered as <code>employee</code>.</p>
+        <p class="error" id="register-error"></p>
+      </form>
+    </div>
+  </main>
+
+  <!-- APP VIEW (Dashboard) -->
+  <main id="app-view" class="container hidden">
     <section class="card">
       <h2>Find a Space</h2>
       <div class="filters">
@@ -46,7 +86,7 @@
           <select id="space-id"></select>
         </label>
         <label>Title
-          <input id="title" required />
+          <input id="title" required placeholder="Team Sync" />
         </label>
         <label>Attendees
           <input id="attendees" type="number" min="1" value="1" required />
@@ -58,11 +98,12 @@
           <input id="end" type="datetime-local" required />
         </label>
         <label>Notes
-          <input id="notes" />
+          <input id="notes" placeholder="Optional notes" />
         </label>
         <button type="submit">Book</button>
       </form>
-      <p class="hint">Bookings on rooms like "IPA Room" may require approval.</p>
+      <p class="hint">Rooms with “needs approval” will be pending until an admin approves.</p>
+      <p class="error" id="booking-error"></p>
     </section>
 
     <section class="card">
@@ -76,18 +117,9 @@
     </section>
   </main>
 
-  <dialog id="login-dialog">
-    <form method="dialog" class="login-form" id="login-form">
-      <h3>Login</h3>
-      <label>Email <input id="login-email" type="email" required /></label>
-      <label>Password <input id="login-password" type="password" required /></label>
-      <menu>
-        <button value="cancel">Cancel</button>
-        <button id="login-submit" value="default">Login</button>
-      </menu>
-      <p class="hint">Try <code>test@example.com</code> / <code>Hackathon@1234</code></p>
-    </form>
-  </dialog>
+  <footer class="foot">
+    <span class="muted">API: <code id="api-base"></code></span>
+  </footer>
 
   <script src="./app.js"></script>
 </body>

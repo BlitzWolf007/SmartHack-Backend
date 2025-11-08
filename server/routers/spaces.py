@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from datetime import datetime, timezone
-from ..db import get_db
-from ..models import Space, SpaceType, ActivityType, Booking
-from ..schemas import SpaceOut
 from typing import List, Optional
+
+from ..db import get_db
+from ..models import Space, SpaceType, ActivityType, Booking, BookingStatus
+from ..schemas import SpaceOut
 
 router = APIRouter(prefix="/spaces", tags=["spaces"])
 
@@ -32,9 +33,9 @@ def availability(space_id: int, db: Session = Depends(get_db), date: Optional[st
     if not space:
         raise HTTPException(status_code=404, detail="Space not found")
 
+    # Determine day in UTC
     if date:
         try:
-            # Expect date like '2025-11-08'
             d = datetime.strptime(date, "%Y-%m-%d").date()
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format, expected YYYY-MM-DD")
@@ -43,10 +44,15 @@ def availability(space_id: int, db: Session = Depends(get_db), date: Optional[st
 
     start = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=timezone.utc)
     end = datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=timezone.utc)
+
     bookings = (
         db.query(Booking)
-        .filter(Booking.space_id == space_id, Booking.status.in_(["pending", "approved"]))
-        .filter(Booking.start_utc <= end, Booking.end_utc >= start)
+        .filter(
+            Booking.space_id == space_id,
+            Booking.status.in_([BookingStatus.pending, BookingStatus.approved]),
+            Booking.start_utc <= end,
+            Booking.end_utc >= start,
+        )
         .order_by(Booking.start_utc.asc())
         .all()
     )

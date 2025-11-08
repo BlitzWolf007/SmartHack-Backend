@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+#from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..db import get_db
 from ..auth import get_current_user, require_admin
@@ -11,12 +11,29 @@ from ..schemas import BookingCreate, BookingOut
 
 router = APIRouter(prefix="/bookings", tags=["bookings"])
 
-def overlap(a_start, a_end, b_start, b_end):
+def norm_utc(dt: datetime) -> datetime:
+    """Return a timezone-aware UTC datetime; treat naive values as UTC."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+def overlap(a_start: datetime, a_end: datetime, b_start: datetime, b_end: datetime) -> bool:
+    """All inputs must be UTC-aware."""
     return not (a_end <= b_start or a_start >= b_end)
 
 @router.post("", response_model=BookingOut)
-def create_booking(payload: BookingCreate, db: Session = Depends(get_db), current: User = Depends(get_current_user)):
-    if payload.end_utc <= payload.start_utc:
+def create_booking(
+    payload: BookingCreate,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
+    # Normalize request datetimes to aware UTC
+    start = norm_utc(payload.start_utc)
+    end = norm_utc(payload.end_utc)
+
+    if end <= start:
         raise HTTPException(status_code=400, detail="End must be after start")
 
     space = db.get(Space, payload.space_id)
@@ -26,14 +43,19 @@ def create_booking(payload: BookingCreate, db: Session = Depends(get_db), curren
     if payload.attendees > space.capacity:
         raise HTTPException(status_code=400, detail=f"Attendees exceed capacity ({space.capacity})")
 
-    # Conflict check
+    # Conflict check (normalize DB values too because SQLite can return naive datetimes)
     conflicts = (
         db.query(Booking)
-        .filter(Booking.space_id == payload.space_id, Booking.status.in_([BookingStatus.pending, BookingStatus.approved]))
+        .filter(
+            Booking.space_id == payload.space_id,
+            Booking.status.in_([BookingStatus.pending, BookingStatus.approved]),
+        )
         .all()
     )
     for b in conflicts:
-        if overlap(payload.start_utc, payload.end_utc, b.start_utc, b.end_utc):
+        b_start = norm_utc(b.start_utc)
+        b_end = norm_utc(b.end_utc)
+        if overlap(start, end, b_start, b_end):
             raise HTTPException(status_code=409, detail="Time conflict with existing booking")
 
     status = BookingStatus.pending if space.requires_approval else BookingStatus.approved
@@ -43,8 +65,8 @@ def create_booking(payload: BookingCreate, db: Session = Depends(get_db), curren
         space_id=payload.space_id,
         title=payload.title,
         attendees=payload.attendees,
-        start_utc=payload.start_utc,
-        end_utc=payload.end_utc,
+        start_utc=start,
+        end_utc=end,
         status=status,
         notes=payload.notes,
     )
@@ -54,13 +76,15 @@ def create_booking(payload: BookingCreate, db: Session = Depends(get_db), curren
     return booking
 
 @router.get("/mine", response_model=List[BookingOut])
-def my_bookings(db: Session = Depends(get_db), current: User = Depends(get_current_user)):
-    return (
-        db.query(Booking)
-        .filter(Booking.user_id == current.id)
-        .order_by(Booking.start_utc.desc())
-        .all()
-    )
+def my_bookings(
+    include_cancelled: bool = Query(False, description="Include cancelled/rejected in results"),
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
+    q = db.query(Booking).filter(Booking.user_id == current.id)
+    if not include_cancelled:
+        q = q.filter(Booking.status.in_([BookingStatus.pending, BookingStatus.approved]))
+    return q.order_by(Booking.start_utc.desc()).all()
 
 @router.delete("/{booking_id}")
 def cancel_booking(booking_id: int, db: Session = Depends(get_db), current: User = Depends(get_current_user)):
@@ -68,10 +92,11 @@ def cancel_booking(booking_id: int, db: Session = Depends(get_db), current: User
     if not b or b.user_id != current.id:
         raise HTTPException(status_code=404, detail="Booking not found")
     if b.status in [BookingStatus.cancelled, BookingStatus.rejected]:
-        return {"ok": True}
+        return {"ok": True, "id": booking_id, "message": "booking cancelled"}
     b.status = BookingStatus.cancelled
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "id": booking_id, "message": "booking cancelled"}
+
 
 @router.get("/pending", response_model=List[BookingOut])
 def pending_bookings(db: Session = Depends(get_db), admin: User = Depends(require_admin)):

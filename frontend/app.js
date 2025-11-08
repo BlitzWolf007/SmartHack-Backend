@@ -1,67 +1,169 @@
-const API_BASE = localStorage.getItem('api_base') || 'http://localhost:8000';
+// ---------- Config ----------
+const saved = localStorage.getItem('api_base');
+const isLocal = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+const API_BASE = saved || (isLocal ? 'http://localhost:8000' : `${location.origin}/api`);
 
-let token = localStorage.getItem('token') || null;
-let me = null;
+document.getElementById('api-base').textContent = API_BASE;
 
-const el = (sel) => document.querySelector(sel);
-const list = (sel) => document.querySelectorAll(sel);
+// ---------- Helpers ----------
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
 
-function setAuthUI() {
-  const info = el('#user-info');
-  const btnLogin = el('#btn-login');
-  const btnLogout = el('#btn-logout');
-  const adminSection = document.querySelector('.admin-only');
+function show(id) { $(id).classList.remove('hidden'); }
+function hide(id) { $(id).classList.add('hidden'); }
+function setText(id, txt) { const el = $(id); if (el) el.textContent = txt || ''; }
+function setError(id, msg) { const el = $(id); if (el) el.textContent = msg || ''; }
 
-  if (me) {
-    info.textContent = `${me.full_name} (${me.role})`;
-    btnLogin.classList.add('hidden');
-    btnLogout.classList.remove('hidden');
-    if (me.role === 'admin') adminSection.classList.remove('hidden');
-    else adminSection.classList.add('hidden');
-  } else {
-    info.textContent = '';
-    btnLogin.classList.remove('hidden');
-    btnLogout.classList.add('hidden');
-    adminSection.classList.add('hidden');
-  }
-}
+function toast(msg) { alert(msg); }
 
 async function api(path, opts = {}) {
   const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  const token = localStorage.getItem('token');
   if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
+  const text = await res.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
   if (!res.ok) {
-    const msg = await res.text();
-    throw new Error(msg || `HTTP ${res.status}`);
+    const detail = (body && (body.detail || body.message)) || text || `HTTP ${res.status}`;
+    const err = new Error(detail);
+    err.status = res.status;
+    throw err;
   }
-  if (res.status === 204) return null;
-  const ct = res.headers.get('content-type') || '';
-  return ct.includes('application/json') ? res.json() : res.text();
+  return body;
 }
 
+function setAuthUI(me) {
+  const info = $('#user-info');
+  const btnLogout = $('#btn-logout');
+  if (me) {
+    info.textContent = `${me.full_name} (${me.role})`;
+    btnLogout.classList.remove('hidden');
+  } else {
+    info.textContent = '';
+    btnLogout.classList.add('hidden');
+  }
+}
+
+// ---------- State ----------
+let me = null;
+
+// ---------- Auth view logic ----------
+function switchTab(which) {
+  $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === which));
+  $$('.tab-panel').forEach(p => p.classList.toggle('active', p.id.startsWith(which)));
+}
+
+async function tryVerifyToken() {
+  const token = localStorage.getItem('token');
+  if (!token) return null;
+  try {
+    const user = await api('/auth/verify');
+    return user;
+  } catch (e) {
+    // invalid/expired token
+    localStorage.removeItem('token');
+    return null;
+  }
+}
+
+async function showAuth() {
+  hide('#app-view');
+  show('#auth-view');
+  setAuthUI(null);
+}
+
+async function showApp() {
+  hide('#auth-view');
+  show('#app-view');
+  await loadMe();
+  await loadSpaces();
+  await loadMyBookings();
+  await loadPending();
+}
+
+async function handleLogin(e) {
+  e?.preventDefault?.();
+  setError('#login-error', '');
+  const email = $('#login-email').value.trim();
+  const password = $('#login-password').value.trim();
+  if (password.length < 3) { setError('#login-error','Password is too short.'); return; }
+
+  const btn = $('#login-submit'); btn.disabled = true;
+  try {
+    const res = await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+    localStorage.setItem('token', res.access_token);
+    await showApp();
+  } catch (err) {
+    setError('#login-error', String(err.message || 'Login failed'));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function handleRegister(e) {
+  e?.preventDefault?.();
+  setError('#register-error', '');
+  const full_name = $('#reg-name').value.trim();
+  const email = $('#reg-email').value.trim();
+  const password = $('#reg-password').value.trim();
+  const avatar_url = ($('#reg-avatar').value || '').trim() || null;
+
+  if (password.length < 8) { setError('#register-error','Use at least 8 characters.'); return; }
+
+  const btn = $('#register-submit'); btn.disabled = true;
+  try {
+    await api('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ full_name, email, password, role:'employee', avatar_url })
+    });
+    // Auto-login after register
+    const res = await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+    localStorage.setItem('token', res.access_token);
+    await showApp();
+  } catch (err) {
+    setError('#register-error', String(err.message || 'Register failed'));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------- API loaders ----------
 async function loadMe() {
-  if (!token) { me = null; setAuthUI(); return; }
   try {
     me = await api('/users/me');
+    setAuthUI(me);
+    // role-gated admin section
+    const adminSection = document.querySelector('.admin-only');
+    if (me.role === 'admin') adminSection.classList.remove('hidden');
+    else adminSection.classList.add('hidden');
   } catch {
-    token = null; localStorage.removeItem('token'); me = null;
+    me = null;
+    setAuthUI(null);
   }
-  setAuthUI();
 }
 
 async function loadSpaces() {
-  const type = el('#filter-type').value;
-  const activity = el('#filter-activity').value;
-  const q = el('#search-q').value.trim();
+  const type = $('#filter-type').value;
+  const activity = $('#filter-activity').value;
+  const q = $('#search-q').value.trim();
   const params = new URLSearchParams();
   if (type) params.set('type', type);
   if (activity) params.set('activity', activity);
   if (q) params.set('q', q);
-  const spaces = await api(`/spaces?${params.toString()}`);
 
-  const listEl = el('#spaces');
-  const select = el('#space-id');
+  const listEl = $('#spaces');
+  const select = $('#space-id');
   listEl.innerHTML = ''; select.innerHTML = '';
+
+  let spaces = [];
+  try {
+    spaces = await api(`/spaces${params.toString() ? `?${params}` : ''}`);
+  } catch (e) {
+    toast(`Failed to load spaces: ${e.message}`);
+    return;
+  }
+
   spaces.forEach(s => {
     const li = document.createElement('li');
     li.className = 'space-item';
@@ -85,21 +187,40 @@ async function loadSpaces() {
     select.appendChild(opt);
   });
 
-  list('.btn-check').forEach(btn => {
+  $$('.btn-check').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       const id = e.target.getAttribute('data-id');
       const today = new Date().toISOString().slice(0,10);
-      const data = await api(`/spaces/${id}/availability?date=${today}`);
-      alert(`${data.space.name} bookings today:\n` + data.bookings.map(b => `${b.start_utc} - ${b.end_utc} (${b.status})`).join('\n') || 'none');
+      try {
+        const data = await api(`/spaces/${id}/availability?date=${today}`);
+        const lines = (data.bookings || []).map(
+          (b) => `${new Date(b.start_utc).toISOString()} — ${new Date(b.end_utc).toISOString()} (${b.status}, ${b.attendees} ppl)`
+        );
+        toast(`${data.space.name} bookings today:\n${lines.length ? lines.join('\n') : 'none'}`);
+      } catch (e2) {
+        toast(`Availability failed: ${e2.message}`);
+      }
     });
   });
 }
 
 async function loadMyBookings() {
-  if (!token) { el('#my-bookings').innerHTML = '<li>Login to see your bookings.</li>'; return; }
-  const bookings = await api('/bookings/mine');
-  const elList = el('#my-bookings');
+  const elList = $('#my-bookings');
   elList.innerHTML = '';
+
+  if (!localStorage.getItem('token')) {
+    elList.innerHTML = '<li>Please login to see your bookings.</li>';
+    return;
+  }
+
+  let bookings = [];
+  try {
+    bookings = await api('/bookings/mine');
+  } catch (e) {
+    toast(`Failed to load your bookings: ${e.message}`);
+    return;
+  }
+
   bookings.forEach(b => {
     const li = document.createElement('li');
     li.className = 'space-item';
@@ -107,7 +228,7 @@ async function loadMyBookings() {
       <div>
         <strong>${b.title}</strong>
         <div class="space-meta">
-          <span class="badge">${b.space.name}</span>
+          <span class="badge">${b.space?.name || `#${b.space_id}`}</span>
           <span class="badge">${b.attendees} ppl</span>
           <span class="badge">${new Date(b.start_utc).toISOString()}</span>
           <span class="badge">${new Date(b.end_utc).toISOString()}</span>
@@ -118,19 +239,40 @@ async function loadMyBookings() {
     `;
     elList.appendChild(li);
   });
-  list('.btn-cancel').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      await api(`/bookings/${btn.getAttribute('data-id')}`, { method: 'DELETE' });
-      await loadMyBookings();
+
+    $$('.btn-cancel').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const li = btn.closest('li');
+      const listEl = document.getElementById('my-bookings');
+      try {
+        const res = await api(`/bookings/${btn.getAttribute('data-id')}`, { method: 'DELETE' });
+        toast(res?.message || 'booking cancelled');
+
+        // Remove the item safely
+        if (li) li.remove();
+
+        // If no more real bookings remain, show empty-state
+        if (listEl && !listEl.querySelector('.space-item')) {
+          listEl.innerHTML = '<li>No bookings yet.</li>';
+        }
+      } catch (e) {
+        toast(`Cancel failed: ${e.message}`);
+      }
     });
   });
+
+
 }
 
 async function loadPending() {
-  if (!token || !me || me.role !== 'admin') { el('#pending').innerHTML = ''; return; }
-  const pending = await api('/bookings/pending');
-  const elList = el('#pending');
+  const elList = $('#pending');
   elList.innerHTML = '';
+  if (!me || me.role !== 'admin') return;
+
+  let pending = [];
+  try { pending = await api('/bookings/pending'); }
+  catch (e) { toast(`Failed to load pending: ${e.message}`); return; }
+
   pending.forEach(b => {
     const li = document.createElement('li');
     li.className = 'space-item';
@@ -138,7 +280,7 @@ async function loadPending() {
       <div>
         <strong>${b.title}</strong>
         <div class="space-meta">
-          <span class="badge">${b.space.name}</span>
+          <span class="badge">${b.space?.name || `#${b.space_id}`}</span>
           <span class="badge">${b.attendees} ppl</span>
           <span class="badge">${new Date(b.start_utc).toISOString()}</span>
           <span class="badge">${new Date(b.end_utc).toISOString()}</span>
@@ -152,79 +294,81 @@ async function loadPending() {
     `;
     elList.appendChild(li);
   });
-  list('.approve').forEach(btn => btn.addEventListener('click', async () => {
-    await api(`/bookings/${btn.getAttribute('data-id')}/approve`, { method: 'POST' });
-    await loadPending(); await loadMyBookings();
+
+  $$('.approve').forEach(btn => btn.addEventListener('click', async () => {
+    try {
+      await api(`/bookings/${btn.getAttribute('data-id')}/approve`, { method: 'POST' });
+      await loadPending(); await loadMyBookings();
+    } catch (e) { toast(`Approve failed: ${e.message}`); }
   }));
-  list('.reject').forEach(btn => btn.addEventListener('click', async () => {
-    await api(`/bookings/${btn.getAttribute('data-id')}/reject`, { method: 'POST' });
-    await loadPending(); await loadMyBookings();
+  $$('.reject').forEach(btn => btn.addEventListener('click', async () => {
+    try {
+      await api(`/bookings/${btn.getAttribute('data-id')}/reject`, { method: 'POST' });
+      await loadPending(); await loadMyBookings();
+    } catch (e) { toast(`Reject failed: ${e.message}`); }
   }));
 }
 
-function toUTCDateTimeLocalValue(d = new Date()) {
-  // Returns "YYYY-MM-DDTHH:MM" (no seconds) in UTC
+// ---------- Booking form ----------
+function toUTCInputValue(date = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth()+1)}-${pad(date.getUTCDate())}T${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
 }
 
+async function onCreateBooking(e) {
+  e?.preventDefault?.();
+  setError('#booking-error','');
+  if (!localStorage.getItem('token')) { await showAuth(); return; }
+
+  const payload = {
+    space_id: Number($('#space-id').value),
+    title: $('#title').value.trim(),
+    attendees: Number($('#attendees').value),
+    start_utc: new Date($('#start').value + 'Z').toISOString(),
+    end_utc: new Date($('#end').value + 'Z').toISOString(),
+    notes: ($('#notes').value || '').trim() || null,
+  };
+  if (!payload.title) { setError('#booking-error','Title is required.'); return; }
+
+  try {
+    await api('/bookings', { method: 'POST', body: JSON.stringify(payload) });
+    await loadMyBookings();
+    toast('Booked!');
+  } catch (e) {
+    setError('#booking-error', e.message);
+  }
+}
+
+// ---------- Boot ----------
 async function main() {
-  el('#btn-login').addEventListener('click', () => el('#login-dialog').showModal());
-  el('#btn-logout').addEventListener('click', () => {
-    token = null; localStorage.removeItem('token'); me = null;
-    setAuthUI(); loadMyBookings(); loadPending();
+  // Tabs
+  $$('.tab').forEach(tab => tab.addEventListener('click', () => switchTab(tab.dataset.tab)));
+
+  // Auth handlers
+  $('#login-form').addEventListener('submit', handleLogin);
+  $('#register-form').addEventListener('submit', handleRegister);
+
+  // Logout
+  $('#btn-logout').addEventListener('click', async () => {
+    localStorage.removeItem('token');
+    me = null;
+    await showAuth();
   });
 
-  el('#btn-search').addEventListener('click', () => loadSpaces());
-  el('#booking-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (!token) { alert('Login first.'); return; }
-    const payload = {
-      space_id: Number(el('#space-id').value),
-      title: el('#title').value,
-      attendees: Number(el('#attendees').value),
-      start_utc: new Date(el('#start').value + 'Z').toISOString(),
-      end_utc: new Date(el('#end').value + 'Z').toISOString(),
-      notes: el('#notes').value || null,
-    };
-    try {
-      await api('/bookings', { method: 'POST', body: JSON.stringify(payload) });
-      alert('Booked!');
-      await loadMyBookings(); await loadPending();
-    } catch (e) {
-      alert('Failed: ' + e.message);
-    }
-  });
+  // Search & booking handlers
+  $('#btn-search').addEventListener('click', loadSpaces);
+  $('#booking-form').addEventListener('submit', onCreateBooking);
 
-  el('#login-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const email = el('#login-email').value.trim();
-    const password = el('#login-password').value.trim();
-    try {
-      const res = await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
-      token = res.access_token;
-      localStorage.setItem('token', token);
-      el('#login-dialog').close();
-      await loadMe();
-      await loadMyBookings();
-      await loadPending();
-    } catch (err) {
-      alert('Login failed');
-    }
-  });
-
-  // sensible defaults for form times (next hour UTC)
-  const now = new Date();
-  now.setUTCMinutes(0,0,0);
-  now.setUTCHours(now.getUTCHours()+1);
-  el('#start').value = toUTCDateTimeLocalValue(now);
+  // Default booking times (next hour, 1h duration) in UTC
+  const now = new Date(); now.setUTCMinutes(0,0,0); now.setUTCHours(now.getUTCHours()+1);
   const end = new Date(now); end.setUTCHours(end.getUTCHours()+1);
-  el('#end').value = toUTCDateTimeLocalValue(end);
+  $('#start').value = toUTCInputValue(now);
+  $('#end').value = toUTCInputValue(end);
 
-  await loadMe();
-  await loadSpaces();
-  await loadMyBookings();
-  await loadPending();
+  // Route: if JWT valid -> dashboard, else -> auth
+  const user = await tryVerifyToken();
+  if (user) { await showApp(); }
+  else { await showAuth(); }
 }
 
 main();
