@@ -23,7 +23,7 @@ def create_spaces() -> list[Space]:
         spaces.append(
             Space(
                 name=f"Office {i}",
-                type=SpaceType.room,
+                type=SpaceType.office,
                 activity=ActivityType.focus,
                 capacity=4,
                 requires_approval=True,
@@ -31,35 +31,35 @@ def create_spaces() -> list[Space]:
             )
         )
 
-    # 10 small meeting rooms
+    # 10 small meeting rooms (capacity 4)
     for i in range(1, 11):
         spaces.append(
             Space(
                 name=f"Small Room {i}",
-                type=SpaceType.room,
+                type=SpaceType.small_room,
                 activity=ActivityType.meeting,
                 capacity=4,
                 description=f"Small meeting room {i}",
             )
         )
 
-    # 2 wellbeing zones
+    # 2 wellbeing zones (capacity 1)
     for i in range(1, 3):
         spaces.append(
             Space(
                 name=f"Wellbeing Zone {i}",
-                type=SpaceType.facility,
+                type=SpaceType.wellbeing_zone,
                 activity=ActivityType.relaxation,
                 capacity=1,
                 description=f"Relaxation area {i}",
             )
         )
 
-    # 1 beer point
+    # 1 beer point (capacity 50)
     spaces.append(
         Space(
             name="Beer Point",
-            type=SpaceType.facility,
+            type=SpaceType.beer_point,
             activity=ActivityType.relaxation,
             capacity=50,
             requires_approval=True,
@@ -67,11 +67,11 @@ def create_spaces() -> list[Space]:
         )
     )
 
-    # 2 training rooms
+    # 2 training rooms (capacity 18 and 19)
     spaces.append(
         Space(
             name="Training Room 1",
-            type=SpaceType.room,
+            type=SpaceType.training_room,
             activity=ActivityType.training,
             capacity=18,
             requires_approval=True,
@@ -81,7 +81,7 @@ def create_spaces() -> list[Space]:
     spaces.append(
         Space(
             name="Training Room 2",
-            type=SpaceType.room,
+            type=SpaceType.training_room,
             activity=ActivityType.training,
             capacity=19,
             requires_approval=True,
@@ -91,13 +91,12 @@ def create_spaces() -> list[Space]:
 
     return spaces
 
-
 def seed():
     Base.metadata.create_all(bind=engine)
     db: Session = SessionLocal()
     try:
         if not db.query(User).first():
-            admin = User(email="admin@example.com", full_name="Admin User", password_hash=hash_password("Hackathon@1234"), role=Role.admin)
+            admin = User(email="admin@example.com", full_name="Admin User", password_hash=hash_password("Hackathon@1234"), role=Role.manager)
             user = User(email="test@example.com", full_name="Test User", password_hash=hash_password("Hackathon@1234"), role=Role.employee)
             db.add_all([admin, user])
 

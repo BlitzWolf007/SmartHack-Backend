@@ -49,16 +49,16 @@
           <select id="reg-role">
             <option value="employee">Employee</option>
             <option value="manager">Manager</option>
+            <option value="admin">Admin</option>
           </select>
         </label>
         <label>Avatar URL (optional)
           <input id="reg-avatar" type="url" placeholder="https://..." />
         </label>
         <button id="register-submit" type="submit">Create account</button>
-        <p class="hint">Managers can approve bookings; their bookings auto-approve.</p>
+        <p class="hint">Managers can approve bookings; admins can approve all bookings.</p>
         <p class="error" id="register-error"></p>
       </form>
-
     </div>
   </main>
 
@@ -70,8 +70,11 @@
         <select id="filter-type">
           <option value="">All types</option>
           <option value="desk">Desk</option>
-          <option value="room">Room</option>
-          <option value="facility">Facility</option>
+          <option value="office">Office</option>
+          <option value="small_room">Small Room</option>
+          <option value="training_room">Training Room</option>
+          <option value="wellbeing_zone">Wellbeing Zone</option>
+          <option value="beer_point">Beer Point</option>
         </select>
         <select id="filter-activity">
           <option value="">All activities</option>

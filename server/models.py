@@ -13,8 +13,12 @@ class Role(str, enum.Enum):
 
 class SpaceType(str, enum.Enum):
     desk = "desk"
-    room = "room"
-    facility = "facility"
+    office = "office"
+    small_room = "small_room"
+    training_room = "training_room"
+    meeting_room = "meeting_room"
+    wellbeing_zone = "wellbeing_zone"
+    beer_point = "beer_point"
 
 class ActivityType(str, enum.Enum):
     focus = "focus"           # individual work

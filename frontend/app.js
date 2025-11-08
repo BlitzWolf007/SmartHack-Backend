@@ -145,9 +145,10 @@ async function loadMe() {
 }
 
 async function loadSpaces() {
-  const type = $('#filter-type').value;
-  const activity = $('#filter-activity').value;
-  const q = $('#search-q').value.trim();
+  const type = $('#filter-type').value;          // reads the selected type
+  const activity = $('#filter-activity').value;  // optional activity filter
+  const q = $('#search-q').value.trim();         // optional search
+
   const params = new URLSearchParams();
   if (type) params.set('type', type);
   if (activity) params.set('activity', activity);
@@ -165,6 +166,9 @@ async function loadSpaces() {
     return;
   }
 
+  // Sort by type alphabetically (optional) or keep natural order
+  spaces.sort((a,b) => a.type.localeCompare(b.type));
+
   spaces.forEach(s => {
     const li = document.createElement('li');
     li.className = 'space-item';
@@ -172,7 +176,7 @@ async function loadSpaces() {
       <div>
         <strong>${s.name}</strong>
         <div class="space-meta">
-          <span class="badge">${s.type}</span>
+          <span class="badge">${s.type.replace('_', ' ')}</span>
           <span class="badge">${s.activity}</span>
           <span class="badge">cap ${s.capacity}</span>
           ${s.requires_approval ? '<span class="badge">needs approval</span>' : ''}
@@ -184,7 +188,7 @@ async function loadSpaces() {
 
     const opt = document.createElement('option');
     opt.value = s.id;
-    opt.textContent = `${s.name} (${s.type})`;
+    opt.textContent = `${s.name} (${s.type.replace('_',' ')})`;
     select.appendChild(opt);
   });
 
@@ -195,7 +199,7 @@ async function loadSpaces() {
       try {
         const data = await api(`/spaces/${id}/availability?date=${today}`);
         const lines = (data.bookings || []).map(
-          (b) => `${new Date(b.start_utc).toISOString()} — ${new Date(b.end_utc).toISOString()} (${b.status}, ${b.attendees} ppl)`
+          b => `${new Date(b.start_utc).toISOString()} — ${new Date(b.end_utc).toISOString()} (${b.status}, ${b.attendees} ppl)`
         );
         toast(`${data.space.name} bookings today:\n${lines.length ? lines.join('\n') : 'none'}`);
       } catch (e2) {
