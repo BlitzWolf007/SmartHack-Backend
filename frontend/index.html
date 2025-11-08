@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Office Planner</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>🏢 Office Planner</h1>
+    <nav id="nav">
+      <span id="user-info"></span>
+      <button id="btn-login">Login</button>
+      <button id="btn-logout" class="hidden">Logout</button>
+    </nav>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <h2>Find a Space</h2>
+      <div class="filters">
+        <select id="filter-type">
+          <option value="">All types</option>
+          <option value="desk">Desk</option>
+          <option value="room">Room</option>
+          <option value="facility">Facility</option>
+        </select>
+        <select id="filter-activity">
+          <option value="">All activities</option>
+          <option value="focus">Focus</option>
+          <option value="meeting">Meeting</option>
+          <option value="training">Training</option>
+          <option value="relaxation">Relaxation</option>
+        </select>
+        <input id="search-q" placeholder="Search by name..." />
+        <button id="btn-search">Search</button>
+      </div>
+      <ul id="spaces" class="space-list"></ul>
+    </section>
+
+    <section class="card">
+      <h2>New Booking</h2>
+      <form id="booking-form">
+        <label>Space
+          <select id="space-id"></select>
+        </label>
+        <label>Title
+          <input id="title" required />
+        </label>
+        <label>Attendees
+          <input id="attendees" type="number" min="1" value="1" required />
+        </label>
+        <label>Start (UTC)
+          <input id="start" type="datetime-local" required />
+        </label>
+        <label>End (UTC)
+          <input id="end" type="datetime-local" required />
+        </label>
+        <label>Notes
+          <input id="notes" />
+        </label>
+        <button type="submit">Book</button>
+      </form>
+      <p class="hint">Bookings on rooms like "IPA Room" may require approval.</p>
+    </section>
+
+    <section class="card">
+      <h2>My Bookings</h2>
+      <ul id="my-bookings" class="booking-list"></ul>
+    </section>
+
+    <section class="card admin-only hidden">
+      <h2>Pending Approvals</h2>
+      <ul id="pending" class="booking-list"></ul>
+    </section>
+  </main>
+
+  <dialog id="login-dialog">
+    <form method="dialog" class="login-form" id="login-form">
+      <h3>Login</h3>
+      <label>Email <input id="login-email" type="email" required /></label>
+      <label>Password <input id="login-password" type="password" required /></label>
+      <menu>
+        <button value="cancel">Cancel</button>
+        <button id="login-submit" value="default">Login</button>
+      </menu>
+      <p class="hint">Try <code>test@example.com</code> / <code>Hackathon@1234</code></p>
+    </form>
+  </dialog>
+
+  <script src="./app.js"></script>
+</body>
+</html>
