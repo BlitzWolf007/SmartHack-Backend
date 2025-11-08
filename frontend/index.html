@@ -1,136 +1,14 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Office Planner</title>
-  <link rel="stylesheet" href="./styles.css" />
-</head>
-<body>
-  <header class="topbar">
-    <h1>🏢 Office Planner</h1>
-    <nav id="nav">
-      <span id="user-info"></span>
-      <button id="btn-logout" class="hidden">Logout</button>
-    </nav>
-  </header>
-
-  <!-- AUTH VIEW -->
-  <main id="auth-view" class="auth container">
-    <div class="auth-card">
-      <div class="tabs">
-        <button class="tab active" data-tab="login">Login</button>
-        <button class="tab" data-tab="register">Register</button>
-      </div>
-
-      <form id="login-form" class="tab-panel active" autocomplete="on">
-        <label>Email
-          <input id="login-email" type="email" placeholder="you@example.com" required />
-        </label>
-        <label>Password
-          <input id="login-password" type="password" placeholder="••••••••" required />
-        </label>
-        <button id="login-submit" type="submit">Log in</button>
-        <p class="hint">Demo: <code>test@example.com</code> / <code>Hackathon@1234</code></p>
-        <p class="error" id="login-error"></p>
-      </form>
-
-      <form id="register-form" class="tab-panel" autocomplete="on">
-        <label>Full name
-          <input id="reg-name" type="text" placeholder="Jane Doe" required />
-        </label>
-        <label>Email
-          <input id="reg-email" type="email" placeholder="you@example.com" required />
-        </label>
-        <label>Password
-          <input id="reg-password" type="password" placeholder="Minimum 8 chars" required />
-        </label>
-        <label>Role
-          <select id="reg-role">
-            <option value="employee">Employee</option>
-            <option value="manager">Manager</option>
-            <option value="admin">Admin</option>
-          </select>
-        </label>
-        <label>Avatar URL (optional)
-          <input id="reg-avatar" type="url" placeholder="https://..." />
-        </label>
-        <button id="register-submit" type="submit">Create account</button>
-        <p class="hint">Managers can approve bookings; admins can approve all bookings.</p>
-        <p class="error" id="register-error"></p>
-      </form>
-    </div>
-  </main>
-
-  <!-- APP VIEW (Dashboard) -->
-  <main id="app-view" class="container hidden">
-    <section class="card">
-      <h2>Find a Space</h2>
-      <div class="filters">
-        <select id="filter-type">
-          <option value="">All types</option>
-          <option value="desk">Desk</option>
-          <option value="office">Office</option>
-          <option value="small_room">Small Room</option>
-          <option value="training_room">Training Room</option>
-          <option value="wellbeing_zone">Wellbeing Zone</option>
-          <option value="beer_point">Beer Point</option>
-        </select>
-        <select id="filter-activity">
-          <option value="">All activities</option>
-          <option value="focus">Focus</option>
-          <option value="meeting">Meeting</option>
-          <option value="training">Training</option>
-          <option value="relaxation">Relaxation</option>
-        </select>
-        <input id="search-q" placeholder="Search by name..." />
-        <button id="btn-search">Search</button>
-      </div>
-      <ul id="spaces" class="space-list"></ul>
-    </section>
-
-    <section class="card">
-      <h2>New Booking</h2>
-      <form id="booking-form">
-        <label>Space
-          <select id="space-id"></select>
-        </label>
-        <label>Title
-          <input id="title" required placeholder="Team Sync" />
-        </label>
-        <label>Attendees
-          <input id="attendees" type="number" min="1" value="1" required />
-        </label>
-        <label>Start (UTC)
-          <input id="start" type="datetime-local" required />
-        </label>
-        <label>End (UTC)
-          <input id="end" type="datetime-local" required />
-        </label>
-        <label>Notes
-          <input id="notes" placeholder="Optional notes" />
-        </label>
-        <button type="submit">Book</button>
-      </form>
-      <p class="hint">Rooms with “needs approval” will be pending until an admin approves.</p>
-      <p class="error" id="booking-error"></p>
-    </section>
-
-    <section class="card">
-      <h2>My Bookings</h2>
-      <ul id="my-bookings" class="booking-list"></ul>
-    </section>
-
-    <section class="card admin-only hidden">
-      <h2>Pending Approvals</h2>
-      <ul id="pending" class="booking-list"></ul>
-    </section>
-  </main>
-
-  <footer class="foot">
-    <span class="muted">API: <code id="api-base"></code></span>
-  </footer>
-
-  <script src="./app.js"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0D1733" />
+    <title>TapDesk • SmartHack</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- main.jsx is in project root (frontend/), so use this path -->
+    <script type="module" src="./main.jsx"></script>
+  </body>
 </html>
