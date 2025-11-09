@@ -13,14 +13,15 @@ from .routers import bookings as bookings_router
 
 app = FastAPI(title="Interactive Office Planner API", version="1.1.0")
 
-# CORS: allow the production origin and optional extra origins from .env; always permit localhost via regex
+# CORS: allow the known frontend origin plus any origin via regex (use with caution).
 requested_origin = "https://smart-hack-backend.vercel.app"
 origins = set(settings.origins or [])
 origins.add(requested_origin)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=list(origins),
+    allow_origin_regex=r"^https?://.*$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
