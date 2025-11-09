@@ -6,28 +6,24 @@ export default function Spaces(){
   const [spaces,setSpaces] = useState([])
   const [loading,setLoading] = useState(true)
   const [error,setError] = useState('')
-  const [filters, setFilters] = useState({
-    q:'', type:'', use:'', capacityMin:'', capacityMax:''
-  })
+  const [filters, setFilters] = useState({ q:'', type:'', use:'', capacityMin:'', capacityMax:'' })
 
   const nav = useNavigate()
   const iframeRef = useRef(null)
   const svgRef = useRef(null)
 
-  // Load spaces list (kept tolerant if your search endpoint is missing)
   async function load(){
     setLoading(true); setError('')
     try{
       const f = {
         q: filters.q || undefined,
         name: filters.q || undefined,
-        type: filters.type || undefined,
+        type: filters.type || undefined, // api translates to backend types
         use: filters.use || undefined,
         capacity_min: filters.capacityMin || undefined,
         capacity_max: filters.capacityMax || undefined,
       }
-      let data = []
-      try { data = await api.spaces?.search?.(f) } catch {}
+      const data = await api.spaces.search(f) // returns normalized with ui_type & ui_map_id
       setSpaces(Array.isArray(data) ? data : [])
     }catch(e){
       setError(e?.message || 'Failed to load')
@@ -37,11 +33,9 @@ export default function Spaces(){
   }
   useEffect(()=>{ load() }, []) // initial mount
 
-  // EXACT prefixes found in interactive_map.html
-  const MAP_PREFIXES = [
-    'small_meeting_space','large_meeting_room','huddle','wellbeing','beerpoint','desk'
-  ]
-  const CLICK_SELECTOR = '.map-entity[id]' // defined inside interactive_map.html
+  // EXACT prefixes present in interactive_map.html
+  const MAP_PREFIXES = ['small_meeting_space','large_meeting_room','huddle','wellbeing','beerpoint','desk']
+  const CLICK_SELECTOR = '.map-entity[id]'
 
   const matchesFilter = (el, type) => !type ? true : (el.id || '').startsWith(type)
 
@@ -75,15 +69,9 @@ export default function Spaces(){
     }catch{}
   }
 
-  function guessTypeFromId(id){
-    if (!id) return ''
-    const p = MAP_PREFIXES.find(px => id.startsWith(px))
-    return p || ''
-  }
-
   function applyFilterAndClicks(doc){
     injectInnerStyles(doc)
-    const all = Array.from(doc.querySelectorAll(CLICK_SELECTOR)) // .map-entity[id]
+    const all = Array.from(doc.querySelectorAll(CLICK_SELECTOR))
 
     // reset
     all.forEach(el => {
@@ -112,8 +100,12 @@ export default function Spaces(){
       el.__onClick = handler
       el.addEventListener('click', handler)
     })
-
     dimmed.forEach(el => el.classList.add('__dim'))
+  }
+
+  function guessTypeFromId(id){
+    if (!id) return ''
+    return MAP_PREFIXES.find(px => id.startsWith(px)) || ''
   }
 
   // On iframe load and when filter changes
@@ -141,6 +133,28 @@ export default function Spaces(){
     if (doc) applyFilterAndClicks(doc)
   }
 
+  // list-side filter: accept backend-normalized ui_type & map filters
+  function matchesListFilter(s){
+    if (filters.type) {
+      // s.ui_type already map-friendly (desk, small_meeting_space, large_meeting_room, wellbeing, beerpoint)
+      // Treat 'huddle' same as 'small_meeting_space'
+      const t = s.ui_type
+      const target = filters.type
+      if (target === 'huddle') {
+        if (!(t === 'small_meeting_space')) return false
+      } else if (target !== t) return false
+    }
+    if (filters.use && s.activity !== filters.use) return false
+    if (filters.capacityMin && Number(s.capacity||0) < Number(filters.capacityMin)) return false
+    if (filters.capacityMax && Number(s.capacity||0) > Number(filters.capacityMax)) return false
+    if (filters.q) {
+      const q = filters.q.toLowerCase()
+      const hay = `${s.name||''} ${s.code||''} ${s.id||''}`.toLowerCase()
+      if (!hay.includes(q)) return false
+    }
+    return true
+  }
+
   return (
     <section className="page">
       <header className="page-header">
@@ -161,9 +175,11 @@ export default function Spaces(){
               <select id="type" className="input"
                       value={filters.type} onChange={e=>setFilters({...filters, type:e.target.value})}>
                 <option value="">All types</option>
-                {(SPACE_TYPES?.length ? SPACE_TYPES : MAP_PREFIXES).map(t => (
+                {(SPACE_TYPES || MAP_PREFIXES).map(t => (
                   <option key={t} value={t}>{labelize(t)}</option>
                 ))}
+                {/* include a visible "Huddle" in case you want to pick it explicitly */}
+                {/* It's already in SPACE_TYPES, but kept here if your enum differs */}
               </select>
             </div>
             <div className="form-row">
@@ -219,26 +235,15 @@ export default function Spaces(){
                 </tr>
               </thead>
               <tbody>
-                {(spaces||[]).filter(s=>{
-                  if (filters.type && s.type !== filters.type) return false
-                  if (filters.use && s.use !== filters.use) return false
-                  if (filters.capacityMin && Number(s.capacity||0) < Number(filters.capacityMin)) return false
-                  if (filters.capacityMax && Number(s.capacity||0) > Number(filters.capacityMax)) return false
-                  if (filters.q) {
-                    const q = filters.q.toLowerCase()
-                    const hay = `${s.name||''} ${s.code||''} ${s.id||''}`.toLowerCase()
-                    if (!hay.includes(q)) return false
-                  }
-                  return true
-                }).map(s => (
+                {(spaces||[]).filter(matchesListFilter).map(s => (
                   <tr key={s.id}>
                     <td>{s.name || s.id}</td>
-                    <td>{labelize(s.type || guessTypeFromId(s.id))}</td>
+                    <td>{labelize(s.ui_type || s.type)}</td>
                     <td>{s.capacity ?? '-'}</td>
                     <td>
                       <button
                         className="btn small"
-                        onClick={()=> nav(`/spaces/${encodeURIComponent(s.id)}/book`, { state: { space: s } })}
+                        onClick={()=> nav(`/spaces/${encodeURIComponent(s.ui_map_id || s.id)}/book`, { state: { space: s } })}
                       >
                         Book
                       </button>
