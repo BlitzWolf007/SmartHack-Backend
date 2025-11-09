@@ -126,6 +126,32 @@ const MAP_TO_BACKEND = {
   office: BACKEND_TYPES.office,
 }
 
+// Place this near other constants in api.js
+const MOLSON_COORS_BEERS = [
+  'Coors Light',
+  'Miller Genuine Draft',
+  'Blue Moon',
+  'Staropramen',
+  'Carling',
+  'Bergenbier',
+  'Madri Excepcional',
+  "Leinenkugel's",
+  'Pravha',
+  'Jelen',
+]
+
+const MOLSON_COORS_JUICES = [
+  'Clearly Canadian',
+  'ZICO Coconut Water',
+  'MadVine',
+  'Aspire Healthy Energy',
+  'Huzzah! Probiotic Soda',
+  'Lemon Perfect',
+  'Crispin Cider',
+]
+
+
+
 // Public API object
 export const api = {
   get:   (p, o) => request('GET',    p, undefined, o?.token ?? getAuthToken()),
@@ -157,13 +183,19 @@ function normalizeList(data) {
   if (Array.isArray(data.data)) return data.data
   return []
 }
+
 function decorateSpaces(spacesRaw){
   const spaces = normalizeList(spacesRaw).map(s => ({ ...s }))
-  const desks = spaces.filter(s => ci(s.type)==='desk').sort((a,b)=> nkey(a.name).toString() < nkey(b.name).toString() ? -1 : 1)
-  const smalls = spaces.filter(s => ci(s.type)==='small_room').sort((a,b)=> nkey(a.name).toString() < nkey(b.name).toString() ? -1 : 1)
+  const desks  = spaces.filter(s => ci(s.type)==='desk')
+                       .sort((a,b)=> nkey(a.name).toString() < nkey(b.name).toString() ? -1 : 1)
+  const smalls = spaces.filter(s => ci(s.type)==='small_room')
+                       .sort((a,b)=> nkey(a.name).toString() < nkey(b.name).toString() ? -1 : 1)
+  const huddles = spaces.filter(s => ci(s.type)==='huddle')
+                        .sort((a,b)=> nkey(a.name).toString() < nkey(b.name).toString() ? -1 : 1)
 
-  const deskIndex = new Map(desks.map((s,i)=>[ci(s.name), i+1]))
+  const deskIndex  = new Map(desks.map((s,i)=>[ci(s.name), i+1]))
   const smallIndex = new Map(smalls.map((s,i)=>[ci(s.name), i+1]))
+  const huddleIndex = new Map(huddles.map((s,i)=>[ci(s.name), i+1]))
 
   for (const s of spaces) {
     const bt = ci(s.type)
@@ -174,26 +206,46 @@ function decorateSpaces(spacesRaw){
       const m = String(s.name||'').match(/desk\s+(\d+)/i)
       const n = m ? Number(m[1]) : deskIndex.get(ci(s.name))
       s.ui_map_id = n ? `desk${n}` : `desk`
+
     } else if (uiType === 'small_meeting_space') {
       const n = smallIndex.get(ci(s.name)) || null
       s.ui_map_id = `small_meeting_space${n || 1}`
+      // Rename to Molson Coors beers
+      const idx = ((n || 1) - 1) % MOLSON_COORS_BEERS.length
+      if (!s.original_name) s.original_name = s.name
+      s.name = MOLSON_COORS_BEERS[idx]
+      s.ui_label = s.name
+
+    } else if (uiType === 'huddle') {
+      const n = huddleIndex.get(ci(s.name)) || null
+      s.ui_map_id = `huddle${n || 1}`
+      // Rename to Molson Coors juices
+      const idx = ((n || 1) - 1) % MOLSON_COORS_JUICES.length
+      if (!s.original_name) s.original_name = s.name
+      s.name = MOLSON_COORS_JUICES[idx]
+      s.ui_label = s.name
+
     } else if (uiType === 'large_meeting_room') {
       const nm = ci(s.name)
       if (nm === 'training room 1') s.ui_map_id = 'large_meeting_room1'
       else if (nm === 'training room 2') s.ui_map_id = 'large_meeting_room2'
       else if (nm === 'training rooms (both)') s.ui_map_id = 'large_meeting_room3'
       else s.ui_map_id = 'large_meeting_room1'
+
     } else if (uiType === 'wellbeing') {
       const nm = ci(s.name)
       s.ui_map_id = nm.includes('bookster') ? 'wellbeing2' : 'wellbeing1'
+
     } else if (uiType === 'beerpoint') {
       s.ui_map_id = 'beerpoint1'
+
     } else {
       s.ui_map_id = String(s.id ?? s.space_id ?? s.spaceId ?? '')
     }
   }
   return spaces
 }
+
 
 // Spaces fetch (callable + .search alias). Translate/normalize for UI.
 async function fetchSpaces(filters = {}) {

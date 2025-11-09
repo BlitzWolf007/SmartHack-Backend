@@ -15,7 +15,7 @@ export default function BookSpace(){
   const [people, setPeople] = useState(1)
   const [status, setStatus] = useState('')
 
-  // Time fields for non-desks (hourly, same day)
+  // Time fields for non-desks (same day, arbitrary minutes)
   const [start, setStart] = useState('') // datetime-local
   const [end, setEnd] = useState('')     // datetime-local
 
@@ -67,7 +67,6 @@ export default function BookSpace(){
         return
       }
 
-      // whole-day restriction handled when building payload
       // max 7 days (inclusive)
       const daysInclusive = diffDaysInclusive(s, e)
       if (daysInclusive > 7) {
@@ -75,14 +74,13 @@ export default function BookSpace(){
         return
       }
 
-      // warn if start day is in the past (soft)
       if (atStartOfDayLocal(s).getTime() < startOfTodayLocal().getTime()) {
         setPastWarn('Start date is in the past.')
       }
       return
     }
 
-    // Non-desk: must be within a single calendar day, duration in whole hours, min 1 hour
+    // Non-desk: allow arbitrary minutes, same local day, min duration 5 minutes
     if (!start || !end) return
     const sdt = new Date(start)
     const edt = new Date(end)
@@ -98,13 +96,9 @@ export default function BookSpace(){
       setTimeError('End must be after Start.')
       return
     }
-    const oneHour = 60 * 60 * 1000
-    if (deltaMs < oneHour) {
-      setTimeError('Minimum duration is 1 hour.')
-      return
-    }
-    if (deltaMs % oneHour !== 0) {
-      setTimeError('Duration must be in whole hours.')
+    const fiveMin = 5 * 60 * 1000
+    if (deltaMs < fiveMin) {
+      setTimeError('Minimum duration is 5 minutes.')
       return
     }
 
@@ -192,22 +186,30 @@ export default function BookSpace(){
                 <div className="form-row">
                   <label className="label" htmlFor="start">Start</label>
                   <input
-                    id="start" className={`input ${timeError ? 'input-error' : ''}`} type="datetime-local"
-                    step="3600" /* 1 hour steps */
-                    value={start} onChange={e=>setStart(e.target.value)} required
+                    id="start"
+                    className={`input ${timeError ? 'input-error' : ''}`}
+                    type="datetime-local"
+                    step="300" /* 5-minute steps; adjust as you like */
+                    value={start}
+                    onChange={e=>setStart(e.target.value)}
+                    required
                   />
                 </div>
                 <div className="form-row">
                   <label className="label" htmlFor="end">End</label>
                   <input
-                    id="end" className={`input ${timeError ? 'input-error' : ''}`} type="datetime-local"
-                    step="3600" /* 1 hour steps */
-                    value={end} onChange={e=>setEnd(e.target.value)} required
+                    id="end"
+                    className={`input ${timeError ? 'input-error' : ''}`}
+                    type="datetime-local"
+                    step="300" /* 5-minute steps */
+                    value={end}
+                    onChange={e=>setEnd(e.target.value)}
+                    required
                   />
                 </div>
               </div>
               <p className="helper">
-                Non-desk spaces must be booked within a single day, in whole-hour increments (min 1 hour).
+                Non-desk spaces must be booked within a single day. You can choose any start and end minute (min 5 minutes).
               </p>
               {timeError && <div className="badge warn" role="alert">{timeError}</div>}
               {!timeError && pastWarn && <div className="badge yellow" role="status">{pastWarn}</div>}
@@ -242,7 +244,8 @@ export default function BookSpace(){
             <label className="label" htmlFor="people">People</label>
             <input
               id="people" className="input" type="number" min="1"
-              value={people} onChange={e=>setPeople(e.target.value ? Math.max(1, Number(e.target.value)) : 1)}
+              value={people}
+              onChange={e=>setPeople(e.target.value ? Math.max(1, Number(e.target.value)) : 1)}
             />
             <span className="helper">Saved under a backend-supported key (e.g., people_count).</span>
           </div>
