@@ -1,4 +1,3 @@
-// frontend/src/lib/api.js
 // -----------------------------------------------------------------------------
 // Base URL & debug
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -48,7 +47,7 @@ const ci = s => (s ?? '').toString().trim().toLowerCase()
 const isIntLike = x => /^\d+$/.test(String(x ?? ''))
 function nkey(str){ return String(str).toLowerCase().split(/(\d+)/).map(p=>/\d+/.test(p)?Number(p):p) }
 
-// Fetchers with cache-buster (prevents stale reloads)
+// Cache-buster
 function withCacheBuster(path){
   const hasQ = path.includes('?')
   const sep = hasQ ? '&' : '?'
@@ -106,7 +105,7 @@ const BACKEND_TYPES = {
   meeting_room: 'meeting_room',
   wellbeing_zone: 'wellbeing_zone',
   beer_point: 'beer_point',
-  huddle: 'huddle', // allow backend to send "huddle"
+  huddle: 'huddle', // if backend emits it
 }
 const BACKEND_TO_MAP = {
   [BACKEND_TYPES.desk]: 'desk',
@@ -121,38 +120,22 @@ const BACKEND_TO_MAP = {
 const MAP_TO_BACKEND = {
   desk: BACKEND_TYPES.desk,
   small_meeting_space: BACKEND_TYPES.small_room,
-  // If your backend doesn't support huddle filtering, keep alias to small_room:
-  huddle: BACKEND_TYPES.small_room,
+  huddle: BACKEND_TYPES.small_room, // alias for filtering
   large_meeting_room: BACKEND_TYPES.training_room,
   wellbeing: BACKEND_TYPES.wellbeing_zone,
   beerpoint: BACKEND_TYPES.beer_point,
   office: BACKEND_TYPES.office,
 }
 
-// Molson Coors naming (UI only)
+// UI labels (Molson Coors)
 const MOLSON_COORS_BEERS = [
-  'Coors Light',
-  'Miller Genuine Draft',
-  'Blue Moon',
-  'Staropramen',
-  'Carling',
-  'Bergenbier',
-  'Madri Excepcional',
-  "Leinenkugel's",
-  'Pravha',
-  'Jelen',
+  'Coors Light','Miller Genuine Draft','Blue Moon','Staropramen','Carling',
+  'Bergenbier','Madri Excepcional',"Leinenkugel's",'Pravha','Jelen',
 ]
 const MOLSON_COORS_JUICES = [
-  'Clearly Canadian',
-  'ZICO Coconut Water',
-  'MadVine',
-  'Aspire Healthy Energy',
-  'Huzzah! Probiotic Soda',
-  'Lemon Perfect',
-  'Crispin Cider',
+  'Clearly Canadian','ZICO Coconut Water','MadVine','Aspire Healthy Energy',
+  'Huzzah! Probiotic Soda','Lemon Perfect','Crispin Cider',
 ]
-
-// Expand the drink pool so every small room gets a unique label
 const DRINK_VARIANTS = ['', ' Draft', ' Zero', ' Lime', ' Gold', ' Ice', ' Light']
 function makeUniqueNames(baseList, needed) {
   const out = []
@@ -182,20 +165,15 @@ export const api = {
     request('POST', '/auth/register', { email, full_name, password, role }),
   verify: (token) => request('GET', '/auth/verify', undefined, token),
 
-  // PATCH user (used by Profile / AuthContext.updateUser)
+  // PATCH user (Profile / AuthContext.updateUser)
   updateUser: async (partial) => {
     const token = getAuthToken()
-    const bodies = [
-      partial,
-      { ...partial, full_name: partial.full_name ?? partial.username },
-    ]
     const paths = ['/users/me', '/api/users/me', '/me', '/api/me']
-    const methods = ['PATCH', 'PUT', 'POST']
     for (const p of paths) {
-      for (const m of methods) {
+      for (const m of ['PATCH','PUT','POST']) {
         try {
-          const res = await raw(m, p, bodies[0], token)
-          if (res.ok) { try { return await res.json() } catch { return bodies[0] } }
+          const res = await raw(m, p, partial, token)
+          if (res.ok) { try { return await res.json() } catch { return partial } }
         } catch {}
       }
     }
@@ -234,7 +212,6 @@ function decorateSpaces(spacesRaw){
   const smallIndex  = new Map(smalls.map((s,i)=>[ci(s.name), i+1]))
   const huddleIndex = new Map(huddles.map((s,i)=>[ci(s.name), i+1]))
 
-  // Precompute unique drink labels for *all* small rooms
   const smallUnique = makeUniqueNames(MOLSON_COORS_BEERS, smalls.length)
   const smallDrinkByObj = new WeakMap()
   smalls.forEach((obj, i) => smallDrinkByObj.set(obj, smallUnique[i]))
@@ -252,7 +229,6 @@ function decorateSpaces(spacesRaw){
     } else if (uiType === 'small_meeting_space') {
       const n = smallIndex.get(ci(s.name)) || null
       s.ui_map_id = `small_meeting_space${n || 1}`
-      // Unique Molson Coors drink per small room (UI only)
       const chosen = smallDrinkByObj.get(s) || smallUnique[(n ? n - 1 : 0)]
       if (!s.original_name) s.original_name = s.name
       s.name = chosen
@@ -261,7 +237,6 @@ function decorateSpaces(spacesRaw){
     } else if (uiType === 'huddle') {
       const n = huddleIndex.get(ci(s.name)) || null
       s.ui_map_id = `huddle${n || 1}`
-      // Molson Coors juices (UI only)
       const idx = ((n || 1) - 1) % MOLSON_COORS_JUICES.length
       if (!s.original_name) s.original_name = s.name
       s.name = MOLSON_COORS_JUICES[idx]
@@ -288,7 +263,7 @@ function decorateSpaces(spacesRaw){
   return spaces
 }
 
-// Spaces fetch (callable + .search alias). Translate/normalize for UI.
+// Spaces fetch
 async function fetchSpaces(filters = {}) {
   const f = { ...filters }
   if (f.type && MAP_TO_BACKEND[f.type]) f.type = MAP_TO_BACKEND[f.type]
@@ -307,17 +282,15 @@ async function fetchSpaces(filters = {}) {
 }
 api.spaces = Object.assign(fetchSpaces, { search: (filters) => fetchSpaces(filters) })
 
-// ---------- Map-id → backend numeric id (tolerant: prefix & type fallbacks) ----------
-async function resolveSpaceId(mapId, attemptsLog) {
+// ---------- Map-id → backend numeric id (tolerant) ----------
+async function resolveSpaceId(mapId) {
   if (isIntLike(mapId)) return Number(mapId)
 
   let spaces = null
   for (const path of ['/spaces', '/api/spaces']) {
     const res = await raw('GET', path, undefined, getAuthToken())
-    const text = await res.text().catch(()=> '')
-    attemptsLog?.push({ method:'GET', path, status:res.status, ok:res.ok, responseSnippet:text.slice(0,200) })
     if (!res.ok) continue
-    try { spaces = decorateSpaces(JSON.parse(text)); break } catch {}
+    try { spaces = decorateSpaces(await res.json()); break } catch {}
   }
   if (!Array.isArray(spaces) || !spaces.length) return null
 
@@ -326,47 +299,29 @@ async function resolveSpaceId(mapId, attemptsLog) {
   const getNum = (s) => s?.id ?? s?.space_id ?? s?.spaceId
   const asNum = (v) => isIntLike(v) ? Number(v) : null
 
-  // 1) exact ui_map_id
   const exactUi = spaces.find(s => String(s.ui_map_id || '') === key)
-  if (exactUi) {
-    const n = asNum(getNum(exactUi)); if (n != null) return n
-  }
-  // 2) exact by common identifiers
+  if (exactUi) { const n = asNum(getNum(exactUi)); if (n != null) return n }
+
   const direct = spaces.find(s => {
     const fields = [
-      s?.id?.toString(),
-      s?.space_id?.toString(),
-      s?.spaceId?.toString(),
-      s?.name,
-      s?.code,
-      s?.slug,
-      s?.key,
+      s?.id?.toString(), s?.space_id?.toString(), s?.spaceId?.toString(),
+      s?.name, s?.code, s?.slug, s?.key,
     ].filter(Boolean).map(ci)
     return fields.includes(keyCI)
   })
-  if (direct) {
-    const n = asNum(getNum(direct)); if (n != null) return n
-  }
-  // 3) prefix ui_map_id (e.g., "wellbeing" -> "wellbeing1")
+  if (direct) { const n = asNum(getNum(direct)); if (n != null) return n }
+
   const prefixUi = spaces.find(s => String(s.ui_map_id || '').toLowerCase().startsWith(keyCI))
-  if (prefixUi) {
-    const n = asNum(getNum(prefixUi)); if (n != null) return n
-  }
-  // 4) by ui_type
+  if (prefixUi) { const n = asNum(getNum(prefixUi)); if (n != null) return n }
+
   const byUiType = spaces.find(s => ci(s?.ui_type) === keyCI)
-  if (byUiType) {
-    const n = asNum(getNum(byUiType)); if (n != null) return n
-  }
-  // 5) by backend type
+  if (byUiType) { const n = asNum(getNum(byUiType)); if (n != null) return n }
+
   const byBackendType = spaces.find(s => ci(s?.type) === keyCI)
-  if (byBackendType) {
-    const n = asNum(getNum(byBackendType)); if (n != null) return n
-  }
-  // 6) contains in ui_map_id
+  if (byBackendType) { const n = asNum(getNum(byBackendType)); if (n != null) return n }
+
   const containsUi = spaces.find(s => String(s.ui_map_id || '').toLowerCase().includes(keyCI))
-  if (containsUi) {
-    const n = asNum(getNum(containsUi)); if (n != null) return n
-  }
+  if (containsUi) { const n = asNum(getNum(containsUi)); if (n != null) return n }
 
   return null
 }
@@ -374,13 +329,10 @@ async function resolveSpaceId(mapId, attemptsLog) {
 // ---------- Booking create ----------
 const PEOPLE_KEYS_ALL = ['attendees','people_count','num_people','participants','people','headcount','pax']
 api.createBooking = async function createBooking({ space_id, title, startLocal, endLocal, peopleCount }) {
-  const attempts = []
-  const resolvedId = await resolveSpaceId(space_id, attempts)
-  attempts.push({ note: 'resolveSpaceId', input: String(space_id), resolvedId })
+  const resolvedId = await resolveSpaceId(space_id)
   if (!isIntLike(resolvedId)) {
     const err = new Error(`Unable to resolve space_id for "${space_id}". Please ensure the space exists in backend.`)
     err.status = 422
-    err.attempts = attempts
     throw err
   }
 
@@ -406,24 +358,21 @@ api.createBooking = async function createBooking({ space_id, title, startLocal, 
     for (const payload of payloads) {
       try {
         const res = await raw('POST', p, payload, getAuthToken())
-        const text = await res.text().catch(()=> '')
-        attempts.push({ method:'POST', path:p, status:res.status, ok:res.ok, payloadShape:Object.keys(payload), resolvedId, responseSnippet:text.slice(0,200) })
         if (res.ok || res.status === 201) {
-          let data = null; try { data = text ? JSON.parse(text) : null } catch { data = text || null }
-          return { ok: true, data, endpoint: p, payloadUsed: payload, attempts }
+          try { return await res.json() } catch { return { ok:true } }
         }
         if (res.status === 401 || res.status === 403) {
+          const text = await res.text().catch(()=> '')
           const msg = toErrorMessage(text) || `Auth error (${res.status})`
-          const err = new Error(msg); err.status = res.status; err.attempts = attempts; throw err
+          throw Object.assign(new Error(msg), { status: res.status })
         }
       } catch (e) {
         if (e?.status === 401 || e?.status === 403) throw e
-        attempts.push({ method:'POST', path:p, status:e?.status ?? 0, ok:false, payloadShape:Object.keys(payload), resolvedId, error:String(e?.message || e) })
       }
     }
   }
   const err = new Error('No booking endpoint accepted the request (NOT FOUND).')
-  err.status = 404; err.attempts = attempts; throw err
+  err.status = 404; throw err
 }
 
 // ---------- My bookings ----------
@@ -474,7 +423,6 @@ api.myBookings = async function myBookings() {
 
 // ---------- CANCEL ----------
 api.deleteBooking = async function deleteBooking(id) {
-  const attempts = []
   const token = getAuthToken()
 
   async function okIfCancelled(res){
@@ -506,15 +454,13 @@ api.deleteBooking = async function deleteBooking(id) {
 
   for (const p of bases) {
     const res = await raw('DELETE', p, undefined, token)
-    attempts.push({ method:'DELETE', path:p, status:res.status, ok:res.ok })
-    if (await okIfCancelled(res)) return { ok:true, endpoint:p, attempts }
+    if (await okIfCancelled(res)) return { ok:true, endpoint:p }
   }
 
   for (const p of actionBases) {
     for (const m of ['POST','PATCH','PUT']) {
       const res = await raw(m, p, {}, token)
-      attempts.push({ method:m, path:p, status:res.status, ok:res.ok })
-      if (await okIfCancelled(res)) return { ok:true, endpoint:`${m} ${p}`, attempts }
+      if (await okIfCancelled(res)) return { ok:true, endpoint:`${m} ${p}` }
     }
   }
 
@@ -522,23 +468,21 @@ api.deleteBooking = async function deleteBooking(id) {
     for (const body of [{status:'cancelled'},{action:'cancel'},{cancel:true}]) {
       for (const m of ['PATCH','PUT','POST']) {
         const res = await raw(m, p, body, token)
-        attempts.push({ method:m, path:p, status:res.status, ok:res.ok })
-        if (await okIfCancelled(res)) return { ok:true, endpoint:`${m} ${p}`, attempts }
+        if (await okIfCancelled(res)) return { ok:true, endpoint:`${m} ${p}` }
       }
     }
   }
 
   for (const {path, body} of collectionActions) {
     const res = await raw('POST', path, body, token)
-    attempts.push({ method:'POST', path, status:res.status, ok:res.ok })
-    if (await okIfCancelled(res)) return { ok:true, endpoint:path, attempts }
+    if (await okIfCancelled(res)) return { ok:true, endpoint:path }
   }
 
   const err = new Error('Cancel failed (NOT FOUND).')
-  err.status = 404; err.attempts = attempts; throw err
+  err.status = 404; throw err
 }
 
-// ---------- Day view ----------
+// ---------- Day view (compat) ----------
 api.bookingsOn = async function bookingsOn(isoDateStr) {
   const token = getAuthToken()
   const candidates = [
@@ -640,5 +584,116 @@ api.rejectBooking = async function rejectBooking(id) {
   throw new Error('Reject failed')
 }
 
-// ---------- DEV: expose api in console ----------
+// ---------- Month / range utilities ----------
+function parseISOorNull(s){ const d = new Date(s); return isNaN(d) ? null : d }
+function inRangeUTC(bStart, bEnd, startISO, endISO){
+  const s0 = parseISOorNull(startISO), e0 = parseISOorNull(endISO)
+  if (!s0 || !e0) return true
+  const bs = parseISOorNull(bStart), be = parseISOorNull(bEnd)
+  if (!bs) return false
+  const end = be || bs
+  return bs <= e0 && end >= s0
+}
+
+api.bookingsInRange = async function bookingsInRange(startISO, endISO) {
+  const token = getAuthToken()
+
+  // Prefer direct range endpoints (if backend supports)
+  const directCandidates = [
+    `/bookings?start=${encodeURIComponent(startISO)}&end=${encodeURIComponent(endISO)}`,
+    `/api/bookings?start=${encodeURIComponent(startISO)}&end=${encodeURIComponent(endISO)}`
+  ]
+  for (const p of directCandidates) {
+    try {
+      const res = await raw('GET', p, undefined, token)
+      if (res.ok) {
+        const data = await res.json().catch(()=>null)
+        if (Array.isArray(data)) return data
+        if (Array.isArray(data?.items)) return data.items
+        if (Array.isArray(data?.results)) return data.results
+        if (Array.isArray(data?.data)) return data.data
+      }
+    } catch {}
+  }
+
+  // Fallback: per-space availability
+  const spaces = await api.spaces().catch(()=> [])
+  if (!Array.isArray(spaces) || !spaces.length) return []
+
+  const all = []
+  const chunk = 8
+  for (let i = 0; i < spaces.length; i += chunk) {
+    const batch = spaces.slice(i, i + chunk)
+    const results = await Promise.all(batch.map(async (s) => {
+      try {
+        // try a range availability if it exists
+        let path = `/spaces/${encodeURIComponent(s.id)}/availability${qs({ start: startISO, end: endISO })}`
+        let res = await raw('GET', path, undefined, token)
+        if (!res.ok) {
+          // fallback old style: single day param
+          path = `/spaces/${encodeURIComponent(s.id)}/availability${qs({ date: startISO })}`
+          res = await raw('GET', path, undefined, token)
+        }
+        if (!res.ok) return null
+        const obj = await res.json().catch(()=>null)
+        const bookings = Array.isArray(obj?.bookings) ? obj.bookings
+                        : Array.isArray(obj) ? obj : []
+        return bookings
+          .filter(b => inRangeUTC(b.start_utc || b.start, b.end_utc || b.end, startISO, endISO))
+          .map(b => ({
+            ...b,
+            space: b.space || s,
+            space_id: b.space_id ?? s.id,
+          }))
+      } catch { return null }
+    }))
+    results.forEach(r => { if (Array.isArray(r)) all.push(...r) })
+  }
+
+  const okStatuses = new Set(['pending','approved'])
+  return all.filter(b => okStatuses.has(String(b.status || '').toLowerCase()))
+}
+
+/**
+ * Authoritative monthly count from DB if possible.
+ * Tries several likely endpoints; falls back to counting bookingsInRange.
+ * @param {number} year full year (e.g. 2025)
+ * @param {number} month 1..12
+ * @returns {Promise<number>}
+ */
+api.bookingsCountForMonth = async function bookingsCountForMonth(year, month) {
+  const token = getAuthToken()
+  const ym = `${year}-${String(month).padStart(2,'0')}`
+
+  // 1) Stats endpoints (preferred; direct DB aggregate)
+  const statCandidates = [
+    `/stats/bookings/monthly${qs({ month: ym })}`,        // {count:n}
+    `/api/stats/bookings/monthly${qs({ month: ym })}`,
+    `/bookings/stats/monthly${qs({ month: ym })}`,
+    `/api/bookings/stats/monthly${qs({ month: ym })}`,
+    `/bookings/count${qs({ month: ym })}`,                 // {count:n} or n
+    `/api/bookings/count${qs({ month: ym })}`,
+    `/stats/bookings${qs({ year, month })}`,
+    `/api/stats/bookings${qs({ year, month })}`,
+  ]
+
+  for (const p of statCandidates) {
+    try {
+      const res = await raw('GET', p, undefined, token)
+      if (!res.ok) continue
+      const data = await res.json().catch(()=>null)
+      if (typeof data === 'number') return data
+      if (data && typeof data.count === 'number') return data.count
+      if (Array.isArray(data) && typeof data.length === 'number') return data.length
+    } catch {}
+  }
+
+  // 2) Range listing fallback: count items
+  const start = new Date(year, month - 1, 1, 0, 0, 0, 0)
+  const end   = new Date(year, month, 0, 23, 59, 59, 999)
+  const list = await api.bookingsInRange(start.toISOString(), end.toISOString()).catch(()=>[])
+  return Array.isArray(list) ? list.length : 0
+}
+
+// DEV: expose in console
 if (API_DEBUG && typeof window !== 'undefined') window.api = api

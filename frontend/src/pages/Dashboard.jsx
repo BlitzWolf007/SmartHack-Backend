@@ -1,44 +1,42 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api, SPACE_TYPES } from '../lib/api.js'
+import { api } from '../lib/api.js'
 import { useAuth } from '../context/AuthContext.jsx'
 
 export default function Dashboard() {
-  const { user } = useAuth() // verify if the usr is logged in
+  const { user } = useAuth()
   const [spaces, setSpaces] = useState([])
-  const [bookingsToday, setBookingsToday] = useState([])
+  const [bookingsMonth, setBookingsMonth] = useState([]) // used for "Starting Soon"
+  const [bookingsMonthCount, setBookingsMonthCount] = useState(0) // authoritative DB/aggregate count
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  // NEW (minimal): admin pending approvals state
+  // Admin pending approvals
   const [pending, setPending] = useState([])
   const [pendingLoading, setPendingLoading] = useState(false)
 
-  // if there is no usr, don t fetch
   useEffect(() => {
     if (!user) return
     let mounted = true
     ;(async () => {
       try {
+        // spaces
         const s = await api.spaces()
         if (!mounted) return
         const list = Array.isArray(s) ? s : s?.items || []
         setSpaces(list.filter(sp => sp.type !== 'meeting_room'))
 
-        const today = new Date()
-        const yyyy = today.getFullYear()
-        const mm = String(today.getMonth() + 1).padStart(2, '0')
-        const dd = String(today.getDate()).padStart(2, '0')
-        const dateStr = `${yyyy}-${mm}-${dd}`
-
-        const b = await api.bookingsOn(dateStr)
+        // month range for "Starting Soon" (kept for UX)
+        const now = new Date()
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0)
+        const endOfMonth   = new Date(now.getFullYear(), now.getMonth()+1, 0, 23, 59, 59, 999)
+        const arr = await api.bookingsInRange(startOfMonth.toISOString(), endOfMonth.toISOString())
         if (!mounted) return
-        setBookingsToday(
-          (Array.isArray(b) ? b : []).filter(
-            bk =>
-              (bk.space?.type ?? bk.type) !== 'meeting_room' &&
-              (bk.space_type ?? '') !== 'meeting_room'
-          )
-        )
+        setBookingsMonth(Array.isArray(arr) ? arr : [])
+
+        // authoritative monthly count (DB/stats if available)
+        const cnt = await api.bookingsCountForMonth(now.getFullYear(), now.getMonth()+1)
+        if (!mounted) return
+        setBookingsMonthCount(Number(cnt) || 0)
       } catch (e) {
         if (!mounted) return
         setError(e.message || 'Failed to load dashboard')
@@ -46,12 +44,10 @@ export default function Dashboard() {
         if (mounted) setLoading(false)
       }
     })()
-    return () => {
-      mounted = false
-    }
+    return () => { mounted = false }
   }, [user])
 
-  // NEW (minimal): load pending approvals for admins
+  // Admin: pending approvals
   useEffect(() => {
     if (!user || String(user?.role || '').toLowerCase() !== 'admin') return
     let alive = true
@@ -63,46 +59,35 @@ export default function Dashboard() {
     return () => { alive = false }
   }, [user])
 
-  // Calculating the occupied spaces
+  // Occupied space ids in this month (approx)
   const bookedSpaceIds = useMemo(() => {
     const ids = new Set()
-    for (const b of bookingsToday) {
+    for (const b of bookingsMonth) {
       const sid = b.space_id ?? b.room_id ?? b.space?.id
       if (sid != null) ids.add(String(sid))
     }
     return ids
-  }, [bookingsToday])
+  }, [bookingsMonth])
 
-  // Total by type
-  const totalsByType = useMemo(() => {
-    const map = {}
-    for (const t of SPACE_TYPES.filter(t => t !== 'meeting_room')) map[t] = 0
-    for (const s of spaces) map[s.type] = (map[s.type] || 0) + 1
-    return map
-  }, [spaces])
-
-  // Bookings that start in the next 6 hours
+  // Bookings starting in next 6h
   const startingSoon = useMemo(() => {
     const now = Date.now()
     const sixHours = 6 * 60 * 60 * 1000
-    return bookingsToday
+    return bookingsMonth
       .map(b => ({ ...b, start: b.start_utc || b.start_time || b.start || b.startAt }))
       .filter(b => b.start)
       .map(b => ({ ...b, t: new Date(b.start).getTime() }))
       .filter(b => b.t >= now && b.t - now <= sixHours)
       .sort((a, b) => a.t - b.t)
       .slice(0, 5)
-  }, [bookingsToday])
+  }, [bookingsMonth])
 
   const rowColors = {
     firstRow: 'rgba(65, 155, 210, 0.7)', // light blue
     secondRow: 'rgba(245, 120, 45, 0.7)', // orange
-    thirdRow: 'rgba(252, 190, 50, 0.7)', // yellow
   }
-
   const lightGrey = 'rgba(255,255,255,0.7)'
 
-  // If not logged in
   if (!user) {
     return (
       <div style={{ textAlign: 'center', marginTop: 80, color: '#fff', fontSize: '1.2rem' }}>
@@ -126,7 +111,7 @@ export default function Dashboard() {
           Dashboard
         </h2>
         <p style={{ margin: '8px 0 0 0', fontSize: '1.05rem', color: lightGrey }}>
-          Quick glance at today’s capacity and bookings
+          Quick glance at capacity and this month’s bookings
         </p>
       </header>
 
@@ -201,22 +186,22 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* SUMMARY BLOCK */}
+          {/* SUMMARY (no category cards) */}
           <div
             style={{
               display: 'flex',
               justifyContent: 'center',
               alignItems: 'stretch',
               gap: 60,
-              marginBottom: 50,
+              marginBottom: 30,
             }}
           >
             {[
               { title: 'Total Spaces', value: spaces.length },
-              { title: 'Bookings Today', value: bookingsToday.length },
+              { title: 'Bookings This Month', value: bookingsMonthCount }, // authoritative
               {
-                title: 'Spaces Available',
-                value: Math.max(0, spaces.length - bookedSpaceIds.size),
+                title: 'Distinct Spaces Occupied',
+                value: bookedSpaceIds.size,
               },
             ].map(card => (
               <div
@@ -241,44 +226,11 @@ export default function Dashboard() {
             ))}
           </div>
 
-          {/* TYPES GRID */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-              gap: 25,
-              justifyItems: 'center',
-            }}
-          >
-            {SPACE_TYPES.filter(t => t !== 'meeting_room').map((t, idx) => (
-              <div
-                key={t}
-                style={{
-                  width: '100%',
-                  maxWidth: 240,
-                  backgroundColor: rowColors.thirdRow,
-                  borderRadius: 14,
-                  padding: '22px 16px',
-                  textAlign: 'center',
-                  boxShadow:
-                    '0 6px 15px rgba(0,0,0,0.15), 0 -2px 10px rgba(255,255,255,0.25) inset',
-                  fontWeight: 600,
-                  color: '#FFFFFF',
-                }}
-              >
-                <h4 style={{ margin: '0 0 6px 0' }}>{labelize(t)}</h4>
-                <p style={{ fontSize: '1.8rem', margin: 0, fontWeight: 700 }}>
-                  {totalsByType[t] ?? 0}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          {/* NEW (minimal): Admin pending approvals */}
+          {/* Admin pending approvals */}
           {String(user?.role || '').toLowerCase() === 'admin' && (
             <div
               style={{
-                marginTop: 40,
+                marginTop: 20,
                 backgroundColor: 'rgba(0,0,0,0.25)',
                 borderRadius: 16,
                 padding: 20,
@@ -374,8 +326,4 @@ export default function Dashboard() {
       )}
     </section>
   )
-}
-
-function labelize(s) {
-  return String(s).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
