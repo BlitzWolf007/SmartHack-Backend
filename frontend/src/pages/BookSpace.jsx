@@ -158,8 +158,18 @@ export default function BookSpace(){
     }
   }
 
-  return (
-    <section className="grid" style={{marginTop:12}}>
+return (
+    <section
+      className="grid"
+      style={{
+        marginTop: 16,
+        width: '50%',
+        maxWidth: '50%',
+        marginLeft: 'auto',
+        marginRight: 'auto',
+        textAlign: 'center'
+      }}
+    >
       <header className="grid" style={{gap:6}}>
         <h2 style={{margin:0}}>Book space</h2>
         <p className="helper">
