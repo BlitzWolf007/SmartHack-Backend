@@ -10,7 +10,7 @@ export default function Header() {
       <nav className="nav container">
         <div className="brand">
           <img src={logo} alt="Molson Coors" />
-          <h1>Workspace</h1>
+          <h1>SeatSync</h1>
         </div>
         <div className="actions">
           <NavLink to="/dashboard" className={({ isActive }) => `btn ghost ${isActive ? 'accent' : ''}`}>
@@ -28,7 +28,16 @@ export default function Header() {
 
           {user && (
             <>
-              <Link to={`/profile`} className="badge blue hidden-sm">
+              <Link
+                to={`/profile`}
+                className="badge blue hidden-sm"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  textAlign: 'center',
+                }}
+              >
                 {user.full_name || user.email}
               </Link>
               <button className="btn warn" onClick={signOut}>Log out</button>
