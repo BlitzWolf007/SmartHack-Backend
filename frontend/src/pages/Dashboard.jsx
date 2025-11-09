@@ -1,5 +1,31 @@
+// frontend/src/pages/Dashboard.jsx
 import { useEffect, useMemo, useState } from 'react'
 import { api, SPACE_TYPES } from '../lib/api.js'
+
+function looksAdmin(me) {
+  if (!me) return false
+  const lc = v => String(v ?? '').toLowerCase()
+  // direct flags
+  if (me.is_admin === true) return true
+  if (me.admin === true) return true
+
+  // flat role
+  if (lc(me.role) === 'admin') return true
+  // enum-ish object or nested user.role
+  if (lc(me?.user?.role) === 'admin') return true
+  if (lc(me?.role?.name) === 'admin') return true
+  if (lc(me?.role?.value) === 'admin') return true
+  if (lc(me?.role?.type) === 'admin') return true
+
+  // arrays / permissions
+  if (Array.isArray(me.roles) && me.roles.map(lc).includes('admin')) return true
+  if (Array.isArray(me.permissions) && me.permissions.map(lc).includes('approve_bookings')) return true
+
+  // jwt claims sometimes surface as strings like "Role.admin"
+  if (/admin$/.test(lc(me?.role))) return true
+
+  return false
+}
 
 export default function Dashboard() {
   const [spaces, setSpaces] = useState([])
@@ -7,14 +33,23 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  // Admin state (boolean, robust detection)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [pending, setPending] = useState([])
+  const [pendingLoading, setPendingLoading] = useState(false)
+
   useEffect(() => {
     let mounted = true
     ;(async () => {
       try {
+        // Detect role without breaking anything else
+        const me = await api.me().catch(() => null)
+        if (mounted) setIsAdmin(looksAdmin(me))
+
         const s = await api.spaces()
         if (!mounted) return
         const list = Array.isArray(s) ? s : (s?.items || [])
-        // remove meeting rooms
+        // remove meeting rooms (unchanged)
         setSpaces(list.filter(sp => sp.type !== 'meeting_room'))
 
         const today = new Date()
@@ -25,7 +60,7 @@ export default function Dashboard() {
 
         const b = await api.bookingsOn(dateStr)
         if (!mounted) return
-        // optionally filter out bookings tied to meeting rooms
+        // unchanged filter
         setBookingsToday(
           (Array.isArray(b) ? b : []).filter(
             bk =>
@@ -44,6 +79,38 @@ export default function Dashboard() {
       mounted = false
     }
   }, [])
+
+  // Fetch pending if we THINK we’re admin;
+  // Safety net: if the call succeeds even when isAdmin=false, we flip it on.
+  useEffect(() => {
+    let alive = true
+
+    async function loadPending(tryAnyway=false) {
+      setPendingLoading(true)
+      try {
+        const items = await api.pendingBookings()
+        if (!alive) return
+        if (Array.isArray(items) && items.length >= 0) {
+          setPending(items)
+          // if backend allowed it, ensure the section is visible
+          if (!isAdmin && tryAnyway) setIsAdmin(true)
+        }
+      } catch {
+        if (alive) setPending([])
+      } finally {
+        if (alive) setPendingLoading(false)
+      }
+    }
+
+    if (isAdmin) {
+      loadPending(false)
+    } else {
+      // Attempt once; if it 200s, we’ll show the card.
+      loadPending(true)
+    }
+
+    return () => { alive = false }
+  }, [isAdmin])
 
   const bookedSpaceIds = useMemo(() => {
     const ids = new Set()
@@ -133,6 +200,63 @@ export default function Dashboard() {
               </ul>
             )}
           </div>
+
+          {/* Admin-only pending approvals (now robustly detected) */}
+          {isAdmin && (
+            <div className="card">
+              <h3>Pending booking requests</h3>
+              {pendingLoading ? (
+                <p className="helper">Loading pending requests…</p>
+              ) : pending.length === 0 ? (
+                <p className="helper">No pending requests.</p>
+              ) : (
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {pending.map(b => (
+                    <li key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <strong>{b.title || 'Booking'}</strong> —{' '}
+                        <span className="helper">
+                          {b.space?.name || b.space_name || `Space #${b.space_id}`}
+                        </span>
+                        <div className="helper" style={{ marginTop: 2 }}>
+                          {new Date(b.start_utc || b.start).toLocaleString()} →{' '}
+                          {new Date(b.end_utc || b.end).toLocaleString()} • attendees:{' '}
+                          {b.attendees ?? b.people_count ?? b.num_people ?? 1}
+                          {b.status ? ` • status: ${b.status}` : ''}
+                        </div>
+                      </div>
+                      <button
+                        className="btn success"
+                        onClick={async () => {
+                          try {
+                            await api.approveBooking(b.id)
+                            setPending(list => list.filter(x => x.id !== b.id))
+                          } catch (e) {
+                            alert(e.message || 'Approve failed')
+                          }
+                        }}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        className="btn warn"
+                        onClick={async () => {
+                          try {
+                            await api.rejectBooking(b.id)
+                            setPending(list => list.filter(x => x.id !== b.id))
+                          } catch (e) {
+                            alert(e.message || 'Reject failed')
+                          }
+                        }}
+                      >
+                        Reject
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </>
       )}
     </section>

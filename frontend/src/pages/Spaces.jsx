@@ -232,7 +232,7 @@ export default function Spaces(){
             </div>
           </div>
           <div className="actions">
-            <button className="btn" type="submit" style={{background:'#ECB03D',border:'none', border}}>Apply filters</button>
+            <button className="btn" type="submit" style={{background:'#ECB03D',border:'none'}}>Apply filters</button>
           </div>
         </form>
       </div>

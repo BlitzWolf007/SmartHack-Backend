@@ -458,3 +458,79 @@ api.bookingsOn = async function bookingsOn(isoDateStr) {
   }
   return []
 }
+
+// frontend/src/lib/api.js
+// (keep your file exactly as you sent; append the block below to the end)
+
+// ---------- Admin: pending bookings + approve / reject (minimal, robust) ----------
+api.pendingBookings = async function pendingBookings() {
+  const token = getAuthToken()
+  const candidates = ['/bookings/pending', '/api/bookings/pending']
+
+  for (const p of candidates) {
+    try {
+      const res = await raw('GET', p, undefined, token)
+      if (!res.ok) continue
+      let data = null; try { data = await res.json() } catch { data = null }
+      if (!data) continue
+      if (Array.isArray(data)) return data
+      if (Array.isArray(data.items)) return data.items
+      if (Array.isArray(data.results)) return data.results
+      if (Array.isArray(data.data)) return data.data
+    } catch {}
+  }
+  return []
+}
+
+api.approveBooking = async function approveBooking(id) {
+  const token = getAuthToken()
+  const postTargets = [
+    `/bookings/${id}/approve`, `/api/bookings/${id}/approve`,
+    `/reservations/${id}/approve`, `/api/reservations/${id}/approve`,
+  ]
+  for (const p of postTargets) {
+    try {
+      const res = await raw('POST', p, {}, token)
+      if (res.ok) { try { return await res.json() } catch { return { ok:true } } }
+    } catch {}
+  }
+  // fallback: patch status
+  const patchTargets = [
+    `/bookings/${id}`, `/api/bookings/${id}`,
+    `/reservations/${id}`, `/api/reservations/${id}`,
+  ]
+  for (const p of patchTargets) {
+    try {
+      const res = await raw('PATCH', p, { status: 'approved' }, token)
+      if (res.ok) { try { return await res.json() } catch { return { ok:true } } }
+    } catch {}
+  }
+  throw new Error('Approve failed')
+}
+
+api.rejectBooking = async function rejectBooking(id) {
+  const token = getAuthToken()
+  const postTargets = [
+    `/bookings/${id}/reject`, `/api/bookings/${id}/reject`,
+    `/reservations/${id}/reject`, `/api/reservations/${id}/reject`,
+  ]
+  for (const p of postTargets) {
+    try {
+      const res = await raw('POST', p, {}, token)
+      if (res.ok) { try { return await res.json() } catch { return { ok:true } } }
+    } catch {}
+  }
+  // fallback: patch status
+  const patchTargets = [
+    `/bookings/${id}`, `/api/bookings/${id}`,
+    `/reservations/${id}`, `/api/reservations/${id}`,
+  ]
+  for (const p of patchTargets) {
+    try {
+      const res = await raw('PATCH', p, { status: 'rejected' }, token)
+      if (res.ok) { try { return await res.json() } catch { return { ok:true } } }
+    } catch {}
+  }
+  throw new Error('Reject failed')
+}
+
