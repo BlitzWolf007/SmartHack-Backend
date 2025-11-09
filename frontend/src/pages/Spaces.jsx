@@ -6,22 +6,24 @@ export default function Spaces(){
   const [spaces,setSpaces] = useState([])
   const [loading,setLoading] = useState(true)
   const [error,setError] = useState('')
-  const [filters, setFilters] = useState({ type:'' })
+  const [filters, setFilters] = useState({ type:'' }) // minimal: only type
 
   const nav = useNavigate()
   const iframeRef = useRef(null)
   const svgRef = useRef(null)
   const infoByMapIdRef = useRef(new Map())
 
+  // ---------- Load spaces ----------
   async function load(){
     setLoading(true); setError('')
     try{
       const data = await api.spaces?.search?.({
-        type: filters.type || undefined,
+        type: filters.type || undefined, // minimal: only type sent to API
       })
       const arr = Array.isArray(data) ? data : []
       setSpaces(arr)
 
+      // map: ui_map_id -> space, with huddle alias (for old IDs)
       const map = new Map()
       for (const s of arr) {
         if (s.ui_map_id) map.set(String(s.ui_map_id), s)
@@ -39,8 +41,9 @@ export default function Spaces(){
   }
   useEffect(()=>{ load() }, [])
 
+  // ---------- SVG logic ----------
   const MAP_PREFIXES = [
-    'small_meeting_space','large_meeting_room','huddle','wellbeing','beerpoint','desk'
+    'small_meeting_space','large_meeting_room','huddle','wellbeing','beerpoint','desk','office'
   ]
   const CLICK_SELECTOR = '.map-entity[id]'
   const matchesFilter = (el, type) => !type ? true : (el.id || '').startsWith(type)
@@ -50,23 +53,59 @@ export default function Spaces(){
     const svg = doc.querySelector('svg')
     if (!svg || doc.__mapStylesInjected) return
     const style = doc.createElementNS('http://www.w3.org/2000/svg','style')
+
+    // === NEW COLOR PALETTE ===
+    // Navy canvas + vibrant accents:
+    // - Desks: blue
+    // - Small rooms / Huddles: gold
+    // - Large meeting rooms: orange
+    // - Wellbeing: mint
+    // - Beerpoint: amber
+    // - Offices: purple (if present)
     style.textContent = `
+      /* Base reset for all entities */
+      .map-entity { transition: opacity .15s ease, filter .15s ease, stroke-width .15s ease; }
+
+      /* Type-based fills (by id prefix) */
+      [id^="desk"]                { fill:#3B82F6; stroke:#0B1020; }
+      [id^="small_meeting_space"] { fill:#FACC15; stroke:#0B1020; }
+      [id^="huddle"]              { fill:#F59E0B; stroke:#0B1020; } /* legacy alias */
+      [id^="large_meeting_room"]  { fill:#FB923C; stroke:#0B1020; }
+      [id^="wellbeing"]           { fill:#34D399; stroke:#0B1020; }
+      [id^="beerpoint"]           { fill:#FCD34D; stroke:#0B1020; }
+      [id^="office"]              { fill:#A78BFA; stroke:#0B1020; }
+
+      /* Nice rounded corners / strokes if rects/paths support it */
+      .map-entity { stroke-width: 1.2; }
+
+      /* Interaction helpers */
       .__dim { opacity:.15 !important; pointer-events:none !important; }
-      .__hot { cursor:pointer; transition: filter .15s ease, opacity .15s ease; }
-      .__hot:hover { filter: drop-shadow(0 0 10px rgba(255,220,70,0.8)); }
-      .__sel { stroke:#e11d48 !important; stroke-width:2 !important;
-               filter: drop-shadow(0 0 10px rgba(225,29,72,0.9)); }
+      .__hot { cursor: pointer; }
+      .__hot:hover {
+        filter: drop-shadow(0 0 10px rgba(255,255,255,0.45));
+      }
+      .__sel {
+        stroke:#e11d48 !important; /* selection stroke */
+        stroke-width:2.4 !important;
+        filter: drop-shadow(0 0 12px rgba(225,29,72,0.9));
+      }
     `
     svg.appendChild(style)
+
+    // Tooltip (floating div inside iframe)
     const tip = doc.createElement('div')
     tip.id = '__mapTip'
     tip.style.cssText = `
       position: fixed; z-index: 9999; pointer-events: none; display: none;
       font-family: "Inter", system-ui, sans-serif;
-      font-size: 13px; line-height: 1.35; font-weight: 500;
-      background: rgba(10,15,30,0.96); border: 1px solid rgba(255,220,70,0.25);
-      box-shadow: 0 8px 28px rgba(0,0,0,.45); color: #f8fafc;
-      border-radius: 10px; padding: 10px 12px; backdrop-filter: blur(4px);
+      font-size: 13px; line-height: 1.35; font-weight: 600;
+      background: rgba(10,15,30,0.96);
+      border: 1px solid rgba(255,220,70,0.25);
+      box-shadow: 0 8px 28px rgba(0,0,0,.45);
+      color: #f8fafc;
+      border-radius: 12px;
+      padding: 10px 12px;
+      backdrop-filter: blur(4px);
       max-width: 280px;
     `
     doc.body.appendChild(tip)
@@ -99,13 +138,14 @@ export default function Spaces(){
     const type = guessTypeFromId(id)
     const niceType = labelize(s?.ui_type || type || 'Unknown')
 
+    // Prefer UI label (e.g., drink name) when hovering huddles/alias
     let title = s?.name || id
     if ((id || '').startsWith('huddle') && s?.ui_label) {
       title = s.ui_label
     }
 
     let html = `
-      <div style="font-weight:600; font-size:14px; margin-bottom:4px; color:#ffdd40;">
+      <div style="font-weight:700; font-size:14px; margin-bottom:4px; color:#ffdd40;">
         ${escapeHtml(title)}
       </div>
       <div style="margin-bottom:4px; color:#cbd5e1;">${niceType}</div>
@@ -176,6 +216,7 @@ export default function Spaces(){
     dimmed.forEach(el=>el.classList.add('__dim'))
   }
 
+  // ---------- Iframe load + refresh ----------
   useEffect(()=>{
     const ifr = iframeRef.current
     if (!ifr) return
@@ -188,16 +229,32 @@ export default function Spaces(){
     if(doc) applyFilterAndInteractions(doc)
   }, [filters.type, spaces])
 
+  // ---------- UI ----------
+  const colors = {
+    cardBg: 'rgba(10,15,30,0.72)',
+    cardBorder: '#1e293b',
+    accent: '#ECB03D',
+    text: '#f8fafc',
+  }
+
   return (
     <section className="page" style={{ textAlign:'center' }}>
       <header className="page-header">
-        <h1 style={{color:'#ffdd40', textAlign:'center'}}>Spaces</h1>
+        <h1 style={{color:colors.accent}}>Spaces</h1>
         <p className="helper" style={{ fontSize:'18px', fontWeight:'600', color:'#f1f5f9' }}>
           Filter, hover for details, click to book.
         </p>
       </header>
 
-      <div className="card" style={{borderColor:'#1e293b', background:'rgba(10,15,30,0.7)', textAlign:'center'}}>
+      {/* Filter card */}
+      <div className="card"
+           style={{
+             borderColor:colors.cardBorder,
+             background:colors.cardBg,
+             textAlign:'center',
+             maxWidth: 820,
+             margin: '0 auto'
+           }}>
         <form
           onSubmit={e=>{e.preventDefault();load()}}
           style={{
@@ -205,7 +262,8 @@ export default function Spaces(){
             alignItems:'center',
             justifyContent:'center',
             gap:'10px',
-            padding:'10px 0'
+            padding:'12px 10px',
+            flexWrap:'wrap'
           }}
         >
           <div
@@ -214,17 +272,19 @@ export default function Spaces(){
               alignItems:'center',
               justifyContent:'center',
               gap:'8px',
-              width:'20%',
-              minWidth:240
+              width:'100%',
+              maxWidth:420
             }}
           >
             <label
               className="label"
               htmlFor="type"
-              style={{ fontWeight:'700', fontSize:'16px', color:'#f1f5f9' }}
+              style={{ fontWeight:'700', fontSize:'16px', color:'#f1f5f9', minWidth:60, textAlign:'right' }}
             >
               Type
             </label>
+
+            {/* Dark select with readable options */}
             <select
               id="type"
               className="input"
@@ -235,10 +295,10 @@ export default function Spaces(){
                 color:'#f8fafc',
                 border:'1px solid #334155',
                 width:'100%',
-                height:36,
-                lineHeight:'36px',
-                padding:'0 8px',
-                borderRadius:6,
+                height:40,
+                lineHeight:'40px',
+                padding:'0 10px',
+                borderRadius:8,
                 textAlign:'center',
                 appearance:'none',
                 fontWeight:'600'
@@ -246,21 +306,24 @@ export default function Spaces(){
             >
               <option value="">All</option>
               {(SPACE_TYPES?.length?SPACE_TYPES:MAP_PREFIXES).map(t=>(
-                <option key={t} value={t} style={{fontWeight:'700'}}>{labelize(t)}</option>
+                <option key={t} value={t} style={{background:'#0b1020', color:'#f8fafc', fontWeight:'700'}}>
+                  {labelize(t)}
+                </option>
               ))}
             </select>
+
             <button
               className="btn"
               type="submit"
               style={{
-                background:'#ECB03D',
+                background:colors.accent,
                 border:'none',
-                height:36,
-                padding:'0 14px',
-                borderRadius:6,
+                height:40,
+                padding:'0 16px',
+                borderRadius:8,
                 fontWeight:'700',
                 whiteSpace:'nowrap',
-                color:'#fff'
+                color:'#0b1020'
               }}
             >
               Apply
@@ -269,8 +332,7 @@ export default function Spaces(){
         </form>
       </div>
 
-      <h2 style={{ color:'#ffdd40', marginTop: 24, marginBottom: 8, textAlign:'center' }}>Seats Mapping</h2>
-
+      {/* Map */}
       <div className="map-wrap-full">
         <iframe ref={iframeRef} src="/interactive_map.html" title="Interactive Map" className="map-iframe-full"/>
       </div>
@@ -278,7 +340,7 @@ export default function Spaces(){
       <style>{`
         .map-wrap-full {
           position: relative; border-radius: 12px; overflow: hidden;
-          margin-top: 8px; border: 1px solid #1e293b; background: #0b1020;
+          margin-top: 10px; border: 1px solid #1e293b; background: #0b1020;
         }
         .map-iframe-full {
           width: 100%; height: calc(100vh - 260px); min-height: 70vh;
