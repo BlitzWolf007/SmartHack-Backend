@@ -215,8 +215,11 @@ async function fetchSpaces(filters = {}) {
 api.spaces = Object.assign(fetchSpaces, { search: (filters) => fetchSpaces(filters) })
 
 // ---------- Map-id → backend numeric id ----------
+// ---------- Map-id → backend numeric id (tolerant: prefix & type fallbacks) ----------
 async function resolveSpaceId(mapId, attemptsLog) {
   if (isIntLike(mapId)) return Number(mapId)
+
+  // load spaces directly (keeps your existing probing)
   let spaces = null
   for (const path of ['/spaces', '/api/spaces']) {
     const res = await raw('GET', path, undefined, getAuthToken())
@@ -226,13 +229,20 @@ async function resolveSpaceId(mapId, attemptsLog) {
     try { spaces = decorateSpaces(JSON.parse(text)); break } catch {}
   }
   if (!Array.isArray(spaces) || !spaces.length) return null
+
   const key = String(mapId)
-  const byUiId = spaces.find(s => s.ui_map_id === key)
-  if (byUiId) {
-    const val = byUiId.id ?? byUiId.space_id ?? byUiId.spaceId
-    if (isIntLike(val)) return Number(val)
-  }
   const keyCI = ci(key)
+
+  const getNum = (s) => s?.id ?? s?.space_id ?? s?.spaceId
+  const asNum = (v) => isIntLike(v) ? Number(v) : null
+
+  // 1) exact ui_map_id match (existing behavior)
+  const exactUi = spaces.find(s => String(s.ui_map_id || '') === key)
+  if (exactUi) {
+    const n = asNum(getNum(exactUi)); if (n != null) return n
+  }
+
+  // 2) exact by various plain identifiers (existing behavior)
   const direct = spaces.find(s => {
     const fields = [
       s?.id?.toString(),
@@ -246,11 +256,41 @@ async function resolveSpaceId(mapId, attemptsLog) {
     return fields.includes(keyCI)
   })
   if (direct) {
-    const num = direct.id ?? direct.space_id ?? direct.spaceId
-    if (isIntLike(num)) return Number(num)
+    const n = asNum(getNum(direct)); if (n != null) return n
   }
+
+  // ---- NEW tolerant fallbacks ----
+
+  // 3) prefix ui_map_id match: "wellbeing" -> "wellbeing1"
+  const prefixUi = spaces.find(s => String(s.ui_map_id || '').toLowerCase().startsWith(keyCI))
+  if (prefixUi) {
+    const n = asNum(getNum(prefixUi)); if (n != null) return n
+  }
+
+  // 4) match by ui_type (produced by decorateSpaces)
+  const byUiType = spaces.find(s => ci(s?.ui_type) === keyCI)
+  if (byUiType) {
+    const n = asNum(getNum(byUiType)); if (n != null) return n
+  }
+
+  // 5) match by backend type (original s.type), or mapped value
+  const byBackendType = spaces.find(s => {
+    const t = ci(s?.type)
+    return t === keyCI
+  })
+  if (byBackendType) {
+    const n = asNum(getNum(byBackendType)); if (n != null) return n
+  }
+
+  // As a last resort, try any space whose ui_map_id contains the key
+  const containsUi = spaces.find(s => String(s.ui_map_id || '').toLowerCase().includes(keyCI))
+  if (containsUi) {
+    const n = asNum(getNum(containsUi)); if (n != null) return n
+  }
+
   return null
 }
+
 
 // ---------- Booking create ----------
 const PEOPLE_KEYS_ALL = ['attendees','people_count','num_people','participants','people','headcount','pax']

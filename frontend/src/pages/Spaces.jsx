@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, SPACE_TYPES, USE_TYPES } from '../lib/api.js'
+import { api, SPACE_TYPES } from '../lib/api.js'
 import { useNavigate } from 'react-router-dom'
 
 export default function Spaces(){
   const [spaces,setSpaces] = useState([])
   const [loading,setLoading] = useState(true)
   const [error,setError] = useState('')
-  const [filters, setFilters] = useState({ q:'', type:'', use:'' })
+  const [filters, setFilters] = useState({ type:'' }) // minimal: only type
 
   const nav = useNavigate()
   const iframeRef = useRef(null)
@@ -18,9 +18,7 @@ export default function Spaces(){
     setLoading(true); setError('')
     try{
       const data = await api.spaces?.search?.({
-        q: filters.q || undefined,
-        type: filters.type || undefined,
-        use: filters.use || undefined
+        type: filters.type || undefined, // minimal: only type sent to API
       })
       const arr = Array.isArray(data) ? data : []
       setSpaces(arr)
@@ -206,36 +204,24 @@ export default function Spaces(){
         <form onSubmit={e=>{e.preventDefault();load()}}>
           <div className="grid cols-3">
             <div className="form-row">
-              <label className="label" htmlFor="q">Search</label>
-              <input id="q" className="input" placeholder="Name / keyword"
-                value={filters.q} onChange={e=>setFilters({...filters,q:e.target.value})}/>
-            </div>
-            <div className="form-row">
               <label className="label" htmlFor="type">Type</label>
               <select id="type" className="input"
-                value={filters.type} onChange={e=>setFilters({...filters,type:e.target.value})}>
+                value={filters.type} onChange={e=>setFilters({ type:e.target.value })}>
                 <option value="">All</option>
                 {(SPACE_TYPES?.length?SPACE_TYPES:MAP_PREFIXES).map(t=>(
                   <option key={t} value={t}>{labelize(t)}</option>
                 ))}
               </select>
             </div>
-            <div className="form-row">
-              <label className="label" htmlFor="use">Use</label>
-              <select id="use" className="input"
-                value={filters.use} onChange={e=>setFilters({...filters,use:e.target.value})}>
-                <option value="">Any</option>
-                {(USE_TYPES||[]).map(t=>(
-                  <option key={t} value={t}>{labelize(t)}</option>
-                ))}
-              </select>
-            </div>
           </div>
           <div className="actions">
-            <button className="btn" type="submit" style={{background:'#ECB03D',border:'none'}}>Apply filters</button>
+            <button className="btn" type="submit" style={{background:'#ECB03D',border:'none'}}>Apply</button>
           </div>
         </form>
       </div>
+
+      {/* NEW: title before the map */}
+      <h2 style={{ color:'#ffdd40', marginTop: 18, marginBottom: 8 }}>Seats mapping</h2>
 
       <div className="map-wrap-full">
         <iframe ref={iframeRef} src="/interactive_map.html" title="Interactive Map" className="map-iframe-full"/>
@@ -246,7 +232,7 @@ export default function Spaces(){
           position: relative;
           border-radius: 12px;
           overflow: hidden;
-          margin-top: 16px;
+          margin-top: 8px;
           border: 1px solid #1e293b;
           background: #0b1020;
         }
@@ -271,7 +257,6 @@ export default function Spaces(){
           background: #ECB03D;
           color: #fff;
         }
-        
       `}</style>
 
       {loading && <div className="helper" style={{marginTop:8}}>Loading spaces…</div>}
