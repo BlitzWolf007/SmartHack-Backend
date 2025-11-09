@@ -14,7 +14,7 @@ export default function Spaces(){
   const iframeRef = useRef(null)
   const svgRef = useRef(null)
 
-  // --- Load spaces list (unchanged/minimal, tolerant if API missing)
+  // Load spaces list (kept tolerant if your search endpoint is missing)
   async function load(){
     setLoading(true); setError('')
     try{
@@ -37,15 +37,14 @@ export default function Spaces(){
   }
   useEffect(()=>{ load() }, []) // initial mount
 
-  // --- MAP integration: use the HTML page from /public
-  const FALLBACK_PREFIXES = [
-    'small_meeting_space','large_meeting_room','meeting_room',
-    'huddle','wellbeing','beer_point','desk','office','training_room'
+  // EXACT prefixes found in interactive_map.html
+  const MAP_PREFIXES = [
+    'small_meeting_space','large_meeting_room','huddle','wellbeing','beerpoint','desk'
   ]
   const CLICK_SELECTOR = '.map-entity[id]' // defined inside interactive_map.html
+
   const matchesFilter = (el, type) => !type ? true : (el.id || '').startsWith(type)
 
-  // inject dimming/highlight helpers directly into the inner SVG document
   function injectInnerStyles(doc){
     const svg = doc.querySelector('svg')
     if (!svg || doc.__mapStylesInjected) return
@@ -73,18 +72,23 @@ export default function Spaces(){
       const w = bb.width + pad*2
       const h = bb.height + pad*2
       svg.setAttribute('viewBox', `${x} ${y} ${w} ${h}`)
-    }catch{/* noop */}
+    }catch{}
+  }
+
+  function guessTypeFromId(id){
+    if (!id) return ''
+    const p = MAP_PREFIXES.find(px => id.startsWith(px))
+    return p || ''
   }
 
   function applyFilterAndClicks(doc){
     injectInnerStyles(doc)
-
-    // Grab candidates from the embedded HTML/SVG
     const all = Array.from(doc.querySelectorAll(CLICK_SELECTOR)) // .map-entity[id]
+
     // reset
     all.forEach(el => {
       el.classList.remove('__dim','__hot','__sel')
-      el.style.cursor = '' // base CSS in the HTML already sets cursor
+      el.style.cursor = ''
       if (el.__onClick) { el.removeEventListener('click', el.__onClick); delete el.__onClick }
     })
 
@@ -98,11 +102,9 @@ export default function Spaces(){
         ev.stopPropagation()
         const id = el.getAttribute('id')
         const name = el.getAttribute('data-name') || id
-        // flash + zoom
         el.classList.add('__sel')
         setTimeout(()=> el.classList.remove('__sel'), 800)
         zoomTo(el)
-        // route to your existing booking page
         nav(`/spaces/${encodeURIComponent(id)}/book`, {
           state: { space: { id, name, type: guessTypeFromId(id) } }
         })
@@ -114,13 +116,7 @@ export default function Spaces(){
     dimmed.forEach(el => el.classList.add('__dim'))
   }
 
-  function guessTypeFromId(id){
-    if (!id) return ''
-    const p = FALLBACK_PREFIXES.find(px => id.startsWith(px))
-    return p || ''
-  }
-
-  // On first iframe load
+  // On iframe load and when filter changes
   useEffect(()=>{
     const ifr = iframeRef.current
     if (!ifr) return
@@ -131,14 +127,11 @@ export default function Spaces(){
     }
     ifr.addEventListener('load', onLoad)
     return () => ifr.removeEventListener('load', onLoad)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Re-apply when type filter changes (iframe already loaded)
   useEffect(()=>{
     const doc = iframeRef.current?.contentDocument
     if (doc) applyFilterAndClicks(doc)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.type])
 
   function submit(e){
@@ -168,7 +161,7 @@ export default function Spaces(){
               <select id="type" className="input"
                       value={filters.type} onChange={e=>setFilters({...filters, type:e.target.value})}>
                 <option value="">All types</option>
-                {(SPACE_TYPES?.length ? SPACE_TYPES : FALLBACK_PREFIXES).map(t => (
+                {(SPACE_TYPES?.length ? SPACE_TYPES : MAP_PREFIXES).map(t => (
                   <option key={t} value={t}>{labelize(t)}</option>
                 ))}
               </select>
@@ -200,10 +193,8 @@ export default function Spaces(){
         </form>
       </div>
 
-      {/* Map + list */}
       <div className="grid cols-2 gap-16 mt-16">
         <div className="map-wrap">
-          {/* IMPORTANT: same-origin iframe so we can access contentDocument */}
           <iframe
             ref={iframeRef}
             src="/interactive_map.html"
