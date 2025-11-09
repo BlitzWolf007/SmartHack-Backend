@@ -7,4 +7,4 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
-If the project builds successfully, Vite will output the URLs to connect to.
+If the project builds successfully, Vite will output the URLs to connect to. :3
