@@ -8,9 +8,9 @@ export default defineConfig({
     port: 5173,
     host: true,
     proxy: {
-      '/api': 'https://smarthack-backend.onrender.com',
-      '/auth': 'https://smarthack-backend.onrender.com',
-      '/spaces': 'https://smarthack-backend.onrender.com'
+      '/api': 'https://smarthack-backend.onrender.com:10000',
+      '/auth': 'https://smarthack-backend.onrender.com:10000',
+      '/spaces': 'https://smarthack-backend.onrender.com:10000'
     }
   },
   build: {
