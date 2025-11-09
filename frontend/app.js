@@ -1,7 +1,7 @@
 // ---------- Config ----------
 const saved = localStorage.getItem('api_base');
 const isLocal = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
-const API_BASE = saved || (isLocal ? 'http://localhost:8000' : `${location.origin}/api`);
+const API_BASE = saved || (isLocal ? 'https://smarthack-backend.onrender.com:8000' : `${location.origin}/api`);
 
 document.getElementById('api-base').textContent = API_BASE;
 
