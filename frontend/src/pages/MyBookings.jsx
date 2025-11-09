@@ -47,7 +47,17 @@ export default function MyBookings(){
   }
 
   return (
-    <section className="page">
+    <section
+      className="page"
+      style={{
+        marginTop: 16,
+        width: '80%',
+        maxWidth: '80%',
+        marginLeft: 'auto',
+        marginRight: 'auto',
+        textAlign: 'center'
+      }}
+    >
       <header className="page-header">
         <h1>My bookings</h1>
         <button className="btn" onClick={load} style={{marginLeft: 'auto'}}>Refresh</button>
