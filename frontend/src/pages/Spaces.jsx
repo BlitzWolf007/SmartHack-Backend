@@ -6,53 +6,90 @@ export default function Spaces(){
   const [spaces,setSpaces] = useState([])
   const [loading,setLoading] = useState(true)
   const [error,setError] = useState('')
-  const [filters, setFilters] = useState({ q:'', type:'', use:'', capacityMin:'', capacityMax:'' })
+  const [filters, setFilters] = useState({ q:'', type:'', use:'' })
 
   const nav = useNavigate()
   const iframeRef = useRef(null)
   const svgRef = useRef(null)
+  const infoByMapIdRef = useRef(new Map())
 
+  // ---------- Load spaces ----------
   async function load(){
     setLoading(true); setError('')
     try{
-      const f = {
+      const data = await api.spaces?.search?.({
         q: filters.q || undefined,
-        name: filters.q || undefined,
-        type: filters.type || undefined, // api translates to backend types
-        use: filters.use || undefined,
-        capacity_min: filters.capacityMin || undefined,
-        capacity_max: filters.capacityMax || undefined,
-      }
-      const data = await api.spaces.search(f) // returns normalized with ui_type & ui_map_id
-      setSpaces(Array.isArray(data) ? data : [])
+        type: filters.type || undefined,
+        use: filters.use || undefined
+      })
+      const arr = Array.isArray(data) ? data : []
+      setSpaces(arr)
+      const map = new Map()
+      for (const s of arr) if (s.ui_map_id) map.set(String(s.ui_map_id), s)
+      infoByMapIdRef.current = map
     }catch(e){
-      setError(e?.message || 'Failed to load')
+      setError(e?.message || 'Failed to load spaces')
     }finally{
       setLoading(false)
     }
   }
-  useEffect(()=>{ load() }, []) // initial mount
+  useEffect(()=>{ load() }, [])
 
-  // EXACT prefixes present in interactive_map.html
-  const MAP_PREFIXES = ['small_meeting_space','large_meeting_room','huddle','wellbeing','beerpoint','desk']
+  // ---------- SVG logic ----------
+  const MAP_PREFIXES = [
+    'small_meeting_space','large_meeting_room','huddle','wellbeing','beerpoint','desk'
+  ]
   const CLICK_SELECTOR = '.map-entity[id]'
-
   const matchesFilter = (el, type) => !type ? true : (el.id || '').startsWith(type)
+  const escapeHtml = (s='') => String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
 
   function injectInnerStyles(doc){
     const svg = doc.querySelector('svg')
     if (!svg || doc.__mapStylesInjected) return
     const style = doc.createElementNS('http://www.w3.org/2000/svg','style')
+    // Updated to navy/red/yellow scheme
     style.textContent = `
       .__dim { opacity:.15 !important; pointer-events:none !important; }
-      .__hot { transition: filter .15s ease, opacity .15s ease; cursor: pointer; }
-      .__hot:hover { filter: drop-shadow(0 0 6px rgba(16,185,129,.65)); }
-      .__sel { stroke:#10b981 !important; stroke-width:2 !important;
-               filter: drop-shadow(0 0 6px rgba(16,185,129,.75)); }
+      .__hot {
+        cursor: pointer;
+        transition: filter .15s ease, opacity .15s ease;
+      }
+      .__hot:hover {
+        filter: drop-shadow(0 0 10px rgba(255,220,70,0.8)); /* golden-yellow glow */
+      }
+      .__sel {
+        stroke:#e11d48 !important; /* red highlight */
+        stroke-width:2 !important;
+        filter: drop-shadow(0 0 10px rgba(225,29,72,0.9));
+      }
     `
     svg.appendChild(style)
+
+    // Tooltip (floating div inside iframe)
+    const tip = doc.createElement('div')
+    tip.id = '__mapTip'
+    tip.style.cssText = `
+      position: fixed; z-index: 9999; pointer-events: none; display: none;
+      font-family: "Inter", system-ui, sans-serif;
+      font-size: 13px; line-height: 1.35; font-weight: 500;
+      background: rgba(10,15,30,0.96);
+      border: 1px solid rgba(255,220,70,0.25);
+      box-shadow: 0 8px 28px rgba(0,0,0,.45);
+      color: #f8fafc;
+      border-radius: 10px;
+      padding: 10px 12px;
+      backdrop-filter: blur(4px);
+      max-width: 280px;
+    `
+    doc.body.appendChild(tip)
     doc.__mapStylesInjected = true
     svgRef.current = svg
+  }
+
+  function guessTypeFromId(id){
+    if (!id) return ''
+    const p = MAP_PREFIXES.find(px => id.startsWith(px))
+    return p || ''
   }
 
   function zoomTo(el){
@@ -69,200 +106,176 @@ export default function Spaces(){
     }catch{}
   }
 
-  function applyFilterAndClicks(doc){
+  function formatTooltip(space, id){
+    const s = space
+    const type = guessTypeFromId(id)
+    const niceType = labelize(s?.ui_type || type || 'Unknown')
+    let html = `
+      <div style="font-weight:600; font-size:14px; margin-bottom:4px; color:#ffdd40;">
+        ${escapeHtml(s?.name || id)}
+      </div>
+      <div style="margin-bottom:4px; color:#cbd5e1;">${niceType}</div>
+    `
+    if (s?.capacity) html += `<div style="color:#94a3b8;">Capacity: ${s.capacity}</div>`
+    if (s?.activity) html += `<div style="color:#94a3b8;">Activity: ${labelize(s.activity)}</div>`
+    if (s?.requires_approval) html += `<div style="color:#e11d48;">Needs approval</div>`
+    if (s?.description) html += `<div style="margin-top:4px; color:#9ca3af;">${escapeHtml(s.description)}</div>`
+    return html
+  }
+
+  function attachTooltip(doc, el){
+    const tip = doc.getElementById('__mapTip')
+    if (!tip) return
+    const mapId = el.getAttribute('id')
+    const space = infoByMapIdRef.current.get(mapId)
+    const show = ev => { tip.style.display='block'; tip.innerHTML=formatTooltip(space,mapId); move(ev) }
+    const hide = ()=>{ tip.style.display='none' }
+    const move = ev=>{
+      const pad=14; let x=ev.clientX+pad; let y=ev.clientY+pad
+      const vw=doc.documentElement.clientWidth, vh=doc.documentElement.clientHeight
+      const rect=tip.getBoundingClientRect()
+      if(x+rect.width>vw) x=vw-rect.width-6
+      if(y+rect.height>vh) y=vh-rect.height-6
+      tip.style.left=`${x}px`; tip.style.top=`${y}px`
+    }
+    el.addEventListener('mouseenter',show)
+    el.addEventListener('mouseleave',hide)
+    el.addEventListener('mousemove',move)
+    el.__tip={show,hide,move}
+  }
+  function detachTooltip(el){
+    if(!el.__tip) return
+    el.removeEventListener('mouseenter',el.__tip.show)
+    el.removeEventListener('mouseleave',el.__tip.hide)
+    el.removeEventListener('mousemove',el.__tip.move)
+    delete el.__tip
+  }
+
+  function applyFilterAndInteractions(doc){
     injectInnerStyles(doc)
     const all = Array.from(doc.querySelectorAll(CLICK_SELECTOR))
-
-    // reset
-    all.forEach(el => {
+    all.forEach(el=>{
       el.classList.remove('__dim','__hot','__sel')
-      el.style.cursor = ''
-      if (el.__onClick) { el.removeEventListener('click', el.__onClick); delete el.__onClick }
+      if(el.__onClick){el.removeEventListener('click',el.__onClick);delete el.__onClick}
+      detachTooltip(el)
     })
 
-    const enabled = all.filter(el => matchesFilter(el, filters.type))
-    const dimmed  = all.filter(el => !matchesFilter(el, filters.type))
+    const enabled=all.filter(el=>matchesFilter(el,filters.type))
+    const dimmed =all.filter(el=>!matchesFilter(el,filters.type))
 
-    enabled.forEach(el => {
+    enabled.forEach(el=>{
       el.classList.add('__hot')
-      const handler = (ev) => {
-        ev.preventDefault()
-        ev.stopPropagation()
-        const id = el.getAttribute('id')
-        const name = el.getAttribute('data-name') || id
+      const click=(ev)=>{
+        ev.preventDefault();ev.stopPropagation()
+        const id=el.getAttribute('id')
+        const s=infoByMapIdRef.current.get(id)
+        const name=s?.name||id
         el.classList.add('__sel')
-        setTimeout(()=> el.classList.remove('__sel'), 800)
+        setTimeout(()=>el.classList.remove('__sel'),800)
         zoomTo(el)
-        nav(`/spaces/${encodeURIComponent(id)}/book`, {
-          state: { space: { id, name, type: guessTypeFromId(id) } }
-        })
+        nav(`/spaces/${encodeURIComponent(id)}/book`,{state:{space:s||{id,name,type:guessTypeFromId(id)}}})
       }
-      el.__onClick = handler
-      el.addEventListener('click', handler)
+      el.__onClick=click
+      el.addEventListener('click',click)
+      attachTooltip(doc,el)
     })
-    dimmed.forEach(el => el.classList.add('__dim'))
+    dimmed.forEach(el=>el.classList.add('__dim'))
   }
 
-  function guessTypeFromId(id){
-    if (!id) return ''
-    return MAP_PREFIXES.find(px => id.startsWith(px)) || ''
-  }
-
-  // On iframe load and when filter changes
+  // ---------- Iframe load + refresh ----------
   useEffect(()=>{
     const ifr = iframeRef.current
     if (!ifr) return
-    const onLoad = () => {
-      const doc = ifr.contentDocument
-      if (!doc) return
-      applyFilterAndClicks(doc)
-    }
+    const onLoad = ()=>{ const doc=ifr.contentDocument; if(doc) applyFilterAndInteractions(doc) }
     ifr.addEventListener('load', onLoad)
-    return () => ifr.removeEventListener('load', onLoad)
+    return ()=> ifr.removeEventListener('load', onLoad)
   }, [])
-
   useEffect(()=>{
     const doc = iframeRef.current?.contentDocument
-    if (doc) applyFilterAndClicks(doc)
-  }, [filters.type])
-
-  function submit(e){
-    e.preventDefault()
-    load()
-    const doc = iframeRef.current?.contentDocument
-    if (doc) applyFilterAndClicks(doc)
-  }
-
-  // list-side filter: accept backend-normalized ui_type & map filters
-  function matchesListFilter(s){
-    if (filters.type) {
-      // s.ui_type already map-friendly (desk, small_meeting_space, large_meeting_room, wellbeing, beerpoint)
-      // Treat 'huddle' same as 'small_meeting_space'
-      const t = s.ui_type
-      const target = filters.type
-      if (target === 'huddle') {
-        if (!(t === 'small_meeting_space')) return false
-      } else if (target !== t) return false
-    }
-    if (filters.use && s.activity !== filters.use) return false
-    if (filters.capacityMin && Number(s.capacity||0) < Number(filters.capacityMin)) return false
-    if (filters.capacityMax && Number(s.capacity||0) > Number(filters.capacityMax)) return false
-    if (filters.q) {
-      const q = filters.q.toLowerCase()
-      const hay = `${s.name||''} ${s.code||''} ${s.id||''}`.toLowerCase()
-      if (!hay.includes(q)) return false
-    }
-    return true
-  }
+    if(doc) applyFilterAndInteractions(doc)
+  }, [filters.type, spaces])
 
   return (
     <section className="page">
       <header className="page-header">
-        <h1>Spaces</h1>
-        <p className="helper">Filter and click a highlighted area on the map to book.</p>
+        <h1 style={{color:'#ffdd40'}}>Spaces</h1>
+        <p className="helper">Filter, hover for details, click to book.</p>
       </header>
 
-      <div className="card">
-        <form onSubmit={submit}>
-          <div className="grid cols-2">
+      <div className="card" style={{borderColor:'#1e293b', background:'rgba(10,15,30,0.7)'}}>
+        <form onSubmit={e=>{e.preventDefault();load()}}>
+          <div className="grid cols-3">
             <div className="form-row">
               <label className="label" htmlFor="q">Search</label>
-              <input id="q" className="input" placeholder="name / code / keyword"
-                     value={filters.q} onChange={e=>setFilters({...filters, q:e.target.value})}/>
+              <input id="q" className="input" placeholder="Name / keyword"
+                value={filters.q} onChange={e=>setFilters({...filters,q:e.target.value})}/>
             </div>
             <div className="form-row">
               <label className="label" htmlFor="type">Type</label>
               <select id="type" className="input"
-                      value={filters.type} onChange={e=>setFilters({...filters, type:e.target.value})}>
-                <option value="">All types</option>
-                {(SPACE_TYPES || MAP_PREFIXES).map(t => (
+                value={filters.type} onChange={e=>setFilters({...filters,type:e.target.value})}>
+                <option value="">All</option>
+                {(SPACE_TYPES?.length?SPACE_TYPES:MAP_PREFIXES).map(t=>(
                   <option key={t} value={t}>{labelize(t)}</option>
                 ))}
-                {/* include a visible "Huddle" in case you want to pick it explicitly */}
-                {/* It's already in SPACE_TYPES, but kept here if your enum differs */}
               </select>
             </div>
             <div className="form-row">
               <label className="label" htmlFor="use">Use</label>
               <select id="use" className="input"
-                      value={filters.use} onChange={e=>setFilters({...filters, use:e.target.value})}>
+                value={filters.use} onChange={e=>setFilters({...filters,use:e.target.value})}>
                 <option value="">Any</option>
-                {(USE_TYPES || []).map(t => (
+                {(USE_TYPES||[]).map(t=>(
                   <option key={t} value={t}>{labelize(t)}</option>
                 ))}
               </select>
             </div>
-            <div className="form-row">
-              <label className="label">Capacity</label>
-              <div className="grid cols-2 gap-8">
-                <input className="input" type="number" placeholder="min" value={filters.capacityMin}
-                       onChange={e=>setFilters({...filters, capacityMin:e.target.value})}/>
-                <input className="input" type="number" placeholder="max" value={filters.capacityMax}
-                       onChange={e=>setFilters({...filters, capacityMax:e.target.value})}/>
-              </div>
-            </div>
           </div>
-
           <div className="actions">
-            <button className="btn" type="submit">Apply filters</button>
+            <button className="btn" type="submit" style={{background:'#e11d48',border:'none'}}>Apply filters</button>
           </div>
         </form>
       </div>
 
-      <div className="grid cols-2 gap-16 mt-16">
-        <div className="map-wrap">
-          <iframe
-            ref={iframeRef}
-            src="/interactive_map.html"
-            title="Interactive Map"
-            className="map-iframe"
-          />
-        </div>
-
-        <div>
-          {loading ? (
-            <div className="helper">Loading…</div>
-          ) : error ? (
-            <div className="error">{error}</div>
-          ) : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Capacity</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {(spaces||[]).filter(matchesListFilter).map(s => (
-                  <tr key={s.id}>
-                    <td>{s.name || s.id}</td>
-                    <td>{labelize(s.ui_type || s.type)}</td>
-                    <td>{s.capacity ?? '-'}</td>
-                    <td>
-                      <button
-                        className="btn small"
-                        onClick={()=> nav(`/spaces/${encodeURIComponent(s.ui_map_id || s.id)}/book`, { state: { space: s } })}
-                      >
-                        Book
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {!spaces?.length && (
-                  <tr><td colSpan="4" className="helper">No spaces found.</td></tr>
-                )}
-              </tbody>
-            </table>
-          )}
-        </div>
+      <div className="map-wrap-full">
+        <iframe ref={iframeRef} src="/interactive_map.html" title="Interactive Map" className="map-iframe-full"/>
       </div>
 
       <style>{`
-        .map-wrap { border:1px solid var(--line,#1f2937); border-radius: 12px; overflow: hidden; background: rgba(255,255,255,.02); }
-        .map-iframe { width:100%; min-height:560px; display:block; border:0; }
+        .map-wrap-full {
+          position: relative;
+          border-radius: 12px;
+          overflow: hidden;
+          margin-top: 16px;
+          border: 1px solid #1e293b;
+          background: #0b1020;
+        }
+        .map-iframe-full {
+          width: 100%;
+          height: calc(100vh - 260px);
+          min-height: 70vh;
+          display: block;
+          border: 0;
+          background: #0b1020;
+        }
+        @media (max-width: 900px) {
+          .map-iframe-full { height: calc(100vh - 300px); min-height: 60vh; }
+        }
+        .label, .helper { color: #f1f5f9; }
+        .input, select.input {
+          background: rgba(255,255,255,0.08);
+          border: 1px solid #334155;
+          color: #f8fafc;
+        }
+        .btn {
+          background: #e11d48;
+          color: #fff;
+        }
+        .btn:hover { background: #be123c; }
       `}</style>
+
+      {loading && <div className="helper" style={{marginTop:8}}>Loading spaces…</div>}
+      {error && <div className="error" style={{marginTop:8}}>{error}</div>}
     </section>
   )
 }

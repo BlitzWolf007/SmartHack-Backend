@@ -1,114 +1,109 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api.js'
-import { useAuth } from '../context/AuthContext.jsx'
-
-function extractPeople(b){
-  const keys = ['people_count','num_people','attendees','participants','people','headcount','pax']
-  for (const k of keys) if (b?.[k] != null) return Number(b[k])
-  if (b?.meta) {
-    for (const k of keys) if (b.meta[k] != null) return Number(b.meta[k])
-    if (b.meta.people != null) return Number(b.meta.people)
-  }
-  if (b?.details) {
-    for (const k of keys) if (b.details[k] != null) return Number(b.details[k])
-  }
-  return undefined
-}
 
 export default function MyBookings(){
-  const { user } = useAuth()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [cancelingId, setCancelingId] = useState(null)
+  const [debug, setDebug] = useState(null)
 
-  useEffect(()=>{
-    let mounted = true
-    ;(async ()=>{
-      try{
-        const data = await api.myBookings()
-        if (!mounted) return
-        setItems(Array.isArray(data) ? data : [])
-      }catch(e){
-        if (!mounted) return
-        setError(e.message || 'Failed to load bookings')
-      }finally{
-        if (mounted) setLoading(false)
-      }
-    })()
-    return ()=>{ mounted=false }
-  },[])
-
-  async function cancel(id){
-    if (!id) return
-    const yes = confirm('Cancel this booking?')
-    if (!yes) return
-    setCancelingId(id)
+  async function load(){
+    setLoading(true); setError(''); setDebug(null)
     try{
-      await api.deleteBooking(id)
-      // remove from list locally
-      setItems(prev => prev.filter(b => (b.id ?? b.booking_id) !== id))
+      const data = await api.myBookings()
+      setItems(Array.isArray(data) ? data : [])
     }catch(e){
-      setError(e.message || 'Cancel failed')
+      setError(e?.message || 'Failed to load')
     }finally{
-      setCancelingId(null)
+      setLoading(false)
     }
   }
 
+  useEffect(()=>{ load() }, [])
+
+  async function onCancel(b){
+    // optimistic UI
+    const prev = items
+    setItems(prev.map(x => x.id === b.id ? { ...x, status:'cancelled' } : x))
+    setError(''); setDebug(null)
+    try {
+      const res = await api.deleteBooking(b.id)
+      setDebug(res?.attempts || null)
+      // hard refresh list to reflect backend state (avoids ghost rows)
+      await load()
+    } catch (e) {
+      setError(e?.message || 'Cancel failed')
+      setDebug(e?.attempts || null)
+      setItems(prev) // rollback on failure
+    }
+  }
+
+  function fmtWhen(b){
+    const start = new Date(b.start_utc || b.start || b.start_time)
+    const end   = new Date(b.end_utc   || b.end   || b.end_time)
+    if (isNaN(start)) return '-'
+    const endStr = isNaN(end) ? '' : ` → ${end.toLocaleTimeString()}`
+    return `${start.toLocaleString()}${endStr}`
+  }
+
   return (
-    <section className="grid" style={{marginTop:12}}>
-      <header className="grid" style={{gap:6}}>
-        <h2 style={{margin:0}}>My Bookings</h2>
-        <p className="helper">Signed in as {user?.full_name || user?.email || '—'}</p>
+    <section className="page">
+      <header className="page-header">
+        <h1>My bookings</h1>
+        <button className="btn" onClick={load} style={{marginLeft: 'auto'}}>Refresh</button>
       </header>
 
-      {loading && <div className="card">Loading…</div>}
-      {error && <div className="badge yellow">{error}</div>}
+      {loading ? (
+        <div className="helper">Loading…</div>
+      ) : error ? (
+        <div className="error">{error}</div>
+      ) : (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Title</th>
+              <th>Space</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(b => (
+              <tr key={b.id}>
+                <td>{fmtWhen(b)}</td>
+                <td>{b.title || `Booking #${b.id}`}</td>
+                <td>{b.space?.name || b.space_name || b.space_id}</td>
+                <td style={{textTransform:'capitalize'}}>{b.status || 'pending'}</td>
+                <td>
+                  <button
+                    className="btn small ghost"
+                    disabled={(b.status||'').toLowerCase()==='cancelled'}
+                    onClick={()=>onCancel(b)}
+                  >
+                    {(b.status||'').toLowerCase()==='cancelled' ? 'Cancelled' : 'Cancel'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {!items.length && <tr><td colSpan="5" className="helper">No bookings.</td></tr>}
+          </tbody>
+        </table>
+      )}
 
-      {!loading && !error && (
-        <div className="card">
-          <h3>Upcoming & recent</h3>
-          <ul style={{margin:0,paddingLeft:18}}>
-            {items.map(b => {
-              const id = b.id ?? b.booking_id
-              const start = b.start_utc || b.start_time || b.start || b.startAt
-              const end   = b.end_utc   || b.end_time   || b.end   || b.endAt
-              const ppl   = extractPeople(b)
-              return (
-                <li key={id ?? `${b.space_id || b.room_id}-${start}`} className="mt-2">
-                  <div style={{display:'flex', gap:8, alignItems:'center', justifyContent:'space-between'}}>
-                    <div>
-                      <strong>{b.title || b.name || 'Booking'}</strong>
-                      <div className="helper">
-                        Space: {b.space?.name || b.space_name || b.space_id || b.room_id}
-                      </div>
-                      <div className="helper">
-                        {fmt(start)} → {fmt(end)} {ppl ? ` • ${ppl} ${ppl===1?'person':'people'}` : ''}
-                      </div>
-                    </div>
-                    {id && (
-                      <button
-                        className="btn warn"
-                        onClick={()=> cancel(id)}
-                        disabled={cancelingId === id}
-                        title="Cancel booking"
-                      >
-                        {cancelingId === id ? 'Cancelling…' : 'Cancel'}
-                      </button>
-                    )}
-                  </div>
-                </li>
-              )
-            })}
-            {!items.length && <li className="helper">No bookings yet.</li>}
-          </ul>
-        </div>
+      {debug && (
+        <details style={{marginTop: 12}}>
+          <summary style={{cursor:'pointer'}}>Cancel debug ({debug.length} attempts)</summary>
+          <div style={{marginTop:8, fontFamily:'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono"', fontSize:12}}>
+            {debug.map((a,i)=>(
+              <div key={i} style={{padding:'6px 8px', border:'1px solid #1f2937', borderRadius:8, marginBottom:6}}>
+                <div><strong>{a.method} {a.path}</strong></div>
+                <div>Status: {a.status} {a.ok ? 'OK' : ''}</div>
+              </div>
+            ))}
+          </div>
+        </details>
       )}
     </section>
   )
-}
-
-function fmt(iso){
-  if(!iso) return '—'
-  try { return new Date(iso).toLocaleString() } catch { return iso }
 }
