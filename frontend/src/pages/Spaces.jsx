@@ -232,7 +232,7 @@ export default function Spaces(){
             </div>
           </div>
           <div className="actions">
-            <button className="btn" type="submit" style={{background:'#e11d48',border:'none'}}>Apply filters</button>
+            <button className="btn" type="submit" style={{background:'#ECB03D',border:'none', border}}>Apply filters</button>
           </div>
         </form>
       </div>
@@ -268,10 +268,10 @@ export default function Spaces(){
           color: #f8fafc;
         }
         .btn {
-          background: #e11d48;
+          background: #ECB03D;
           color: #fff;
         }
-        .btn:hover { background: #be123c; }
+        
       `}</style>
 
       {loading && <div className="helper" style={{marginTop:8}}>Loading spaces…</div>}
