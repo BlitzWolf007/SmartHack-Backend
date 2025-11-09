@@ -92,10 +92,13 @@ export const api = {
     request('POST', '/auth/register', { email, full_name, password, role }),
   verify: (token) => request('GET', '/auth/verify', undefined, token),
 
+  // Update user
+  updateUser: (data) => request('PATCH', '/users/me', data, getAuthToken()),
+
   // Spaces
   spaces: (filters = {}) => request('GET', `/spaces${qs(filters)}`),
 
-  // My bookings (prioritize your working route)
+  // My bookings
   async myBookings() {
     const token = getAuthToken()
     const candidates = [
@@ -185,7 +188,7 @@ export const api = {
     throw new Error(lastErr || 'Cancel failed')
   },
 
-  // NEW: Bookings for a day (tries a few shapes; falls back to /bookings and filters client-side)
+  // Bookings for a day
   async bookingsOn(isoDateStr /* 'YYYY-MM-DD' */) {
     const token = getAuthToken()
     const candidates = [
@@ -209,13 +212,11 @@ export const api = {
               : Array.isArray(data?.results) ? data.results
               : Array.isArray(data?.data) ? data.data
               : (data && typeof data === 'object') ? [data] : []
-      // If we hit a generic list, filter locally to that date
       if (p.endsWith('/bookings') || p.endsWith('/api/bookings')) {
         arr = arr.filter(b => {
           const s = b.start_utc || b.start_time || b.start || b.startAt
           if (!s) return false
           const d = new Date(s)
-          // format to YYYY-MM-DD local
           const y = d.getFullYear()
           const m = String(d.getMonth()+1).padStart(2,'0')
           const da= String(d.getDate()).padStart(2,'0')

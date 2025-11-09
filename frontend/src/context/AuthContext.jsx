@@ -16,6 +16,12 @@ export function AuthProvider({ children }) {
       .finally(() => setLoading(false))
   }, [])
 
+  const updateUser = async (newData) => {
+    const updatedUser = await api.updateUser(newData)
+    setUser(updatedUser)
+    return updatedUser
+  }
+
   const value = useMemo(() => ({
     user,
     loading,
@@ -31,7 +37,8 @@ export function AuthProvider({ children }) {
     signOut: () => {
       clearAuthToken()
       setUser(null)
-    }
+    },
+    updateUser,
   }), [user])
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>

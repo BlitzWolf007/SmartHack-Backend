@@ -67,7 +67,7 @@ export default function Profile() {
   email: form.email,
   password: form.password || undefined,
   avatar_url: user.avatar_url, // keep same if needed
-});
+});cd
       setOk(true);
       setTimeout(() => setOk(false), 1500);
     } catch (err) {
