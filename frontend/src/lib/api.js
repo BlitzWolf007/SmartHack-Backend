@@ -1,4 +1,4 @@
-const API = import.meta.env.VITE_API_URL || 'https://smarthack-backend.onrender.com:8000'
+const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 // --- Token helpers ---
 const TOKEN_KEY = 'token'
