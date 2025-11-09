@@ -13,23 +13,19 @@ from .routers import bookings as bookings_router
 
 app = FastAPI(title="Interactive Office Planner API", version="1.1.0")
 
-# CORS: prefer ENV origins, else allow localhost/127.* via regex
-if settings.origins:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-else:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# CORS: allow the production origin and optional extra origins from .env; always permit localhost via regex
+requested_origin = "https://smart-hack-backend.vercel.app"
+origins = set(settings.origins or [])
+origins.add(requested_origin)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=list(origins),
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Create tables on startup
 @app.on_event("startup")
