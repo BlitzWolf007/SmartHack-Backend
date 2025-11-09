@@ -6,14 +6,13 @@ export default function Spaces(){
   const [spaces,setSpaces] = useState([])
   const [loading,setLoading] = useState(true)
   const [error,setError] = useState('')
-  const [filters, setFilters] = useState({ type:'' }) // minimal: only type
+  const [filters, setFilters] = useState({ type:'' })
 
   const nav = useNavigate()
   const iframeRef = useRef(null)
   const svgRef = useRef(null)
   const infoByMapIdRef = useRef(new Map())
 
-  // ---------- Load spaces ----------
   async function load(){
     setLoading(true); setError('')
     try{
@@ -23,12 +22,9 @@ export default function Spaces(){
       const arr = Array.isArray(data) ? data : []
       setSpaces(arr)
 
-      // Build lookup for tooltips & bookings (with alias for huddle)
       const map = new Map()
       for (const s of arr) {
         if (s.ui_map_id) map.set(String(s.ui_map_id), s)
-
-        // ✅ ALIAS: if a space is a small meeting space, also map huddleN → the same object
         if (s.ui_type === 'small_meeting_space') {
           const m = String(s.ui_map_id).match(/^small_meeting_space(\d+)$/)
           if (m) map.set(`huddle${m[1]}`, s)
@@ -43,7 +39,6 @@ export default function Spaces(){
   }
   useEffect(()=>{ load() }, [])
 
-  // ---------- SVG logic ----------
   const MAP_PREFIXES = [
     'small_meeting_space','large_meeting_room','huddle','wellbeing','beerpoint','desk'
   ]
@@ -104,7 +99,6 @@ export default function Spaces(){
     const type = guessTypeFromId(id)
     const niceType = labelize(s?.ui_type || type || 'Unknown')
 
-    // ✅ Prefer the juice/beer UI label if hovering a synthetic alias (e.g., 'huddle#')
     let title = s?.name || id
     if ((id || '').startsWith('huddle') && s?.ui_label) {
       title = s.ui_label
@@ -173,7 +167,6 @@ export default function Spaces(){
         el.classList.add('__sel')
         setTimeout(()=>el.classList.remove('__sel'),800)
         zoomTo(el)
-        // keep booking flow the same; alias ensures id resolves to the right object
         nav(`/spaces/${encodeURIComponent(id)}/book`,{state:{space:s||{id,name,type:guessTypeFromId(id)}}})
       }
       el.__onClick=click
@@ -183,7 +176,6 @@ export default function Spaces(){
     dimmed.forEach(el=>el.classList.add('__dim'))
   }
 
-  // ---------- Iframe load + refresh ----------
   useEffect(()=>{
     const ifr = iframeRef.current
     if (!ifr) return
@@ -197,36 +189,87 @@ export default function Spaces(){
   }, [filters.type, spaces])
 
   return (
-    <section className="page">
-      <header className="page-header" style={{textAlign:'center'}}>
-        <h1 style={{color:'#ffdd40'}}>Spaces</h1>
-        <p className="helper">Filter, hover for details, click to book.</p>
+    <section className="page" style={{ textAlign:'center' }}>
+      <header className="page-header">
+        <h1 style={{color:'#ffdd40', textAlign:'center'}}>Spaces</h1>
+        <p className="helper" style={{ fontSize:'18px', fontWeight:'600', color:'#f1f5f9' }}>
+          Filter, hover for details, click to book.
+        </p>
       </header>
 
-      <div className="card" style={{borderColor:'#1e293b', background:'rgba(10,15,30,0.7)'}}>
-        <form onSubmit={e=>{e.preventDefault();load()}} style={{display:'flex', justifyContent:'center'}}>
-          <div className="form-row" style={{minWidth: 260}}>
-            <label className="label" htmlFor="type">Type</label>
+      <div className="card" style={{borderColor:'#1e293b', background:'rgba(10,15,30,0.7)', textAlign:'center'}}>
+        <form
+          onSubmit={e=>{e.preventDefault();load()}}
+          style={{
+            display:'flex',
+            alignItems:'center',
+            justifyContent:'center',
+            gap:'10px',
+            padding:'10px 0'
+          }}
+        >
+          <div
+            style={{
+              display:'flex',
+              alignItems:'center',
+              justifyContent:'center',
+              gap:'8px',
+              width:'20%',
+              minWidth:240
+            }}
+          >
+            <label
+              className="label"
+              htmlFor="type"
+              style={{ fontWeight:'700', fontSize:'16px', color:'#f1f5f9' }}
+            >
+              Type
+            </label>
             <select
               id="type"
               className="input"
               value={filters.type}
               onChange={e=>setFilters({ type:e.target.value })}
-              style={{ background:'#0b1020', color:'#f8fafc', border:'1px solid #334155' }}
+              style={{
+                background:'#0b1020',
+                color:'#f8fafc',
+                border:'1px solid #334155',
+                width:'100%',
+                height:36,
+                lineHeight:'36px',
+                padding:'0 8px',
+                borderRadius:6,
+                textAlign:'center',
+                appearance:'none',
+                fontWeight:'600'
+              }}
             >
               <option value="">All</option>
               {(SPACE_TYPES?.length?SPACE_TYPES:MAP_PREFIXES).map(t=>(
-                <option key={t} value={t}>{labelize(t)}</option>
+                <option key={t} value={t} style={{fontWeight:'700'}}>{labelize(t)}</option>
               ))}
             </select>
-          </div>
-          <div className="actions" style={{alignSelf:'end', marginLeft:12}}>
-            <button className="btn" type="submit" style={{background:'#ECB03D',border:'none'}}>Apply</button>
+            <button
+              className="btn"
+              type="submit"
+              style={{
+                background:'#ECB03D',
+                border:'none',
+                height:36,
+                padding:'0 14px',
+                borderRadius:6,
+                fontWeight:'700',
+                whiteSpace:'nowrap',
+                color:'#fff'
+              }}
+            >
+              Apply
+            </button>
           </div>
         </form>
       </div>
 
-      <h2 style={{ color:'#ffdd40', marginTop: 18, marginBottom: 8, textAlign:'center' }}>Seats mapping</h2>
+      <h2 style={{ color:'#ffdd40', marginTop: 24, marginBottom: 8, textAlign:'center' }}>Seats Mapping</h2>
 
       <div className="map-wrap-full">
         <iframe ref={iframeRef} src="/interactive_map.html" title="Interactive Map" className="map-iframe-full"/>
@@ -245,13 +288,12 @@ export default function Spaces(){
           .map-iframe-full { height: calc(100vh - 300px); min-height: 60vh; }
         }
         .label, .helper { color: #f1f5f9; }
-
-        /* readable dropdown + menu items */
-        select.input { background: #0b1020 !important; color: #f8fafc !important; border: 1px solid #334155; }
-        select.input option, select.input optgroup { background: #0b1020; color: #f8fafc; }
-        select.input::-ms-expand { display: none; }
-
-        .btn { background: #ECB03D; color: #fff; }
+        select.input option, select.input optgroup {
+          background: #0b1020;
+          color: #f8fafc;
+          font-weight: 700;
+        }
+        .btn { background: #ECB03D; color: #fff; cursor: pointer; font-weight: 700; }
       `}</style>
 
       {loading && <div className="helper" style={{marginTop:8}}>Loading spaces…</div>}
