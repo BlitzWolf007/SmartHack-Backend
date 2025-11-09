@@ -75,7 +75,7 @@ export default function Dashboard() {
   }, [bookingsToday])
 
   return (
-    <section className="grid" style={{ marginTop: 12 }}>
+    <section className="grid" style={{ marginTop: 12, marginRight: 15, marginLeft: 15 }}>
       <header className="grid" style={{ gap: 6 }}>
         <h2 style={{ margin: 0 }}>Dashboard</h2>
         <p className="helper">Quick glance at today’s capacity and bookings.</p>
