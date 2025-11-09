@@ -106,6 +106,7 @@ const BACKEND_TYPES = {
   meeting_room: 'meeting_room',
   wellbeing_zone: 'wellbeing_zone',
   beer_point: 'beer_point',
+  huddle: 'huddle', // allow backend to send "huddle"
 }
 const BACKEND_TO_MAP = {
   [BACKEND_TYPES.desk]: 'desk',
@@ -115,10 +116,12 @@ const BACKEND_TO_MAP = {
   [BACKEND_TYPES.wellbeing_zone]: 'wellbeing',
   [BACKEND_TYPES.beer_point]: 'beerpoint',
   [BACKEND_TYPES.office]: 'office',
+  [BACKEND_TYPES.huddle]: 'huddle',
 }
 const MAP_TO_BACKEND = {
   desk: BACKEND_TYPES.desk,
   small_meeting_space: BACKEND_TYPES.small_room,
+  // If your backend doesn't support huddle filtering, keep alias to small_room:
   huddle: BACKEND_TYPES.small_room,
   large_meeting_room: BACKEND_TYPES.training_room,
   wellbeing: BACKEND_TYPES.wellbeing_zone,
@@ -126,7 +129,7 @@ const MAP_TO_BACKEND = {
   office: BACKEND_TYPES.office,
 }
 
-// Place this near other constants in api.js
+// Molson Coors naming (UI only)
 const MOLSON_COORS_BEERS = [
   'Coors Light',
   'Miller Genuine Draft',
@@ -139,7 +142,6 @@ const MOLSON_COORS_BEERS = [
   'Pravha',
   'Jelen',
 ]
-
 const MOLSON_COORS_JUICES = [
   'Clearly Canadian',
   'ZICO Coconut Water',
@@ -150,7 +152,22 @@ const MOLSON_COORS_JUICES = [
   'Crispin Cider',
 ]
 
-
+// Expand the drink pool so every small room gets a unique label
+const DRINK_VARIANTS = ['', ' Draft', ' Zero', ' Lime', ' Gold', ' Ice', ' Light']
+function makeUniqueNames(baseList, needed) {
+  const out = []
+  if (!Array.isArray(baseList) || baseList.length === 0) return out
+  outer:
+  for (const variant of DRINK_VARIANTS) {
+    for (const base of baseList) {
+      const name = `${base}${variant}`.trim()
+      if (!out.includes(name)) out.push(name)
+      if (out.length >= needed) break outer
+    }
+  }
+  while (out.length < needed) out.push(`${baseList[out.length % baseList.length]} ${out.length+1}`)
+  return out
+}
 
 // Public API object
 export const api = {
@@ -164,6 +181,26 @@ export const api = {
   register: (email, full_name, password, role = 'employee') =>
     request('POST', '/auth/register', { email, full_name, password, role }),
   verify: (token) => request('GET', '/auth/verify', undefined, token),
+
+  // PATCH user (used by Profile / AuthContext.updateUser)
+  updateUser: async (partial) => {
+    const token = getAuthToken()
+    const bodies = [
+      partial,
+      { ...partial, full_name: partial.full_name ?? partial.username },
+    ]
+    const paths = ['/users/me', '/api/users/me', '/me', '/api/me']
+    const methods = ['PATCH', 'PUT', 'POST']
+    for (const p of paths) {
+      for (const m of methods) {
+        try {
+          const res = await raw(m, p, bodies[0], token)
+          if (res.ok) { try { return await res.json() } catch { return bodies[0] } }
+        } catch {}
+      }
+    }
+    throw new Error('Failed to update profile')
+  },
 
   me: async () => {
     const candidates = ['/users/me', '/api/users/me', '/me', '/api/me']
@@ -183,19 +220,24 @@ function normalizeList(data) {
   if (Array.isArray(data.data)) return data.data
   return []
 }
-
 function decorateSpaces(spacesRaw){
   const spaces = normalizeList(spacesRaw).map(s => ({ ...s }))
-  const desks  = spaces.filter(s => ci(s.type)==='desk')
-                       .sort((a,b)=> nkey(a.name).toString() < nkey(b.name).toString() ? -1 : 1)
-  const smalls = spaces.filter(s => ci(s.type)==='small_room')
-                       .sort((a,b)=> nkey(a.name).toString() < nkey(b.name).toString() ? -1 : 1)
+
+  const desks   = spaces.filter(s => ci(s.type)==='desk')
+                        .sort((a,b)=> nkey(a.name).toString() < nkey(b.name).toString() ? -1 : 1)
+  const smalls  = spaces.filter(s => ci(s.type)==='small_room')
+                        .sort((a,b)=> nkey(a.name).toString() < nkey(b.name).toString() ? -1 : 1)
   const huddles = spaces.filter(s => ci(s.type)==='huddle')
                         .sort((a,b)=> nkey(a.name).toString() < nkey(b.name).toString() ? -1 : 1)
 
-  const deskIndex  = new Map(desks.map((s,i)=>[ci(s.name), i+1]))
-  const smallIndex = new Map(smalls.map((s,i)=>[ci(s.name), i+1]))
+  const deskIndex   = new Map(desks.map((s,i)=>[ci(s.name), i+1]))
+  const smallIndex  = new Map(smalls.map((s,i)=>[ci(s.name), i+1]))
   const huddleIndex = new Map(huddles.map((s,i)=>[ci(s.name), i+1]))
+
+  // Precompute unique drink labels for *all* small rooms
+  const smallUnique = makeUniqueNames(MOLSON_COORS_BEERS, smalls.length)
+  const smallDrinkByObj = new WeakMap()
+  smalls.forEach((obj, i) => smallDrinkByObj.set(obj, smallUnique[i]))
 
   for (const s of spaces) {
     const bt = ci(s.type)
@@ -210,16 +252,16 @@ function decorateSpaces(spacesRaw){
     } else if (uiType === 'small_meeting_space') {
       const n = smallIndex.get(ci(s.name)) || null
       s.ui_map_id = `small_meeting_space${n || 1}`
-      // Rename to Molson Coors beers
-      const idx = ((n || 1) - 1) % MOLSON_COORS_BEERS.length
+      // Unique Molson Coors drink per small room (UI only)
+      const chosen = smallDrinkByObj.get(s) || smallUnique[(n ? n - 1 : 0)]
       if (!s.original_name) s.original_name = s.name
-      s.name = MOLSON_COORS_BEERS[idx]
+      s.name = chosen
       s.ui_label = s.name
 
     } else if (uiType === 'huddle') {
       const n = huddleIndex.get(ci(s.name)) || null
       s.ui_map_id = `huddle${n || 1}`
-      // Rename to Molson Coors juices
+      // Molson Coors juices (UI only)
       const idx = ((n || 1) - 1) % MOLSON_COORS_JUICES.length
       if (!s.original_name) s.original_name = s.name
       s.name = MOLSON_COORS_JUICES[idx]
@@ -246,7 +288,6 @@ function decorateSpaces(spacesRaw){
   return spaces
 }
 
-
 // Spaces fetch (callable + .search alias). Translate/normalize for UI.
 async function fetchSpaces(filters = {}) {
   const f = { ...filters }
@@ -266,12 +307,10 @@ async function fetchSpaces(filters = {}) {
 }
 api.spaces = Object.assign(fetchSpaces, { search: (filters) => fetchSpaces(filters) })
 
-// ---------- Map-id → backend numeric id ----------
 // ---------- Map-id → backend numeric id (tolerant: prefix & type fallbacks) ----------
 async function resolveSpaceId(mapId, attemptsLog) {
   if (isIntLike(mapId)) return Number(mapId)
 
-  // load spaces directly (keeps your existing probing)
   let spaces = null
   for (const path of ['/spaces', '/api/spaces']) {
     const res = await raw('GET', path, undefined, getAuthToken())
@@ -284,17 +323,15 @@ async function resolveSpaceId(mapId, attemptsLog) {
 
   const key = String(mapId)
   const keyCI = ci(key)
-
   const getNum = (s) => s?.id ?? s?.space_id ?? s?.spaceId
   const asNum = (v) => isIntLike(v) ? Number(v) : null
 
-  // 1) exact ui_map_id match (existing behavior)
+  // 1) exact ui_map_id
   const exactUi = spaces.find(s => String(s.ui_map_id || '') === key)
   if (exactUi) {
     const n = asNum(getNum(exactUi)); if (n != null) return n
   }
-
-  // 2) exact by various plain identifiers (existing behavior)
+  // 2) exact by common identifiers
   const direct = spaces.find(s => {
     const fields = [
       s?.id?.toString(),
@@ -310,31 +347,22 @@ async function resolveSpaceId(mapId, attemptsLog) {
   if (direct) {
     const n = asNum(getNum(direct)); if (n != null) return n
   }
-
-  // ---- NEW tolerant fallbacks ----
-
-  // 3) prefix ui_map_id match: "wellbeing" -> "wellbeing1"
+  // 3) prefix ui_map_id (e.g., "wellbeing" -> "wellbeing1")
   const prefixUi = spaces.find(s => String(s.ui_map_id || '').toLowerCase().startsWith(keyCI))
   if (prefixUi) {
     const n = asNum(getNum(prefixUi)); if (n != null) return n
   }
-
-  // 4) match by ui_type (produced by decorateSpaces)
+  // 4) by ui_type
   const byUiType = spaces.find(s => ci(s?.ui_type) === keyCI)
   if (byUiType) {
     const n = asNum(getNum(byUiType)); if (n != null) return n
   }
-
-  // 5) match by backend type (original s.type), or mapped value
-  const byBackendType = spaces.find(s => {
-    const t = ci(s?.type)
-    return t === keyCI
-  })
+  // 5) by backend type
+  const byBackendType = spaces.find(s => ci(s?.type) === keyCI)
   if (byBackendType) {
     const n = asNum(getNum(byBackendType)); if (n != null) return n
   }
-
-  // As a last resort, try any space whose ui_map_id contains the key
+  // 6) contains in ui_map_id
   const containsUi = spaces.find(s => String(s.ui_map_id || '').toLowerCase().includes(keyCI))
   if (containsUi) {
     const n = asNum(getNum(containsUi)); if (n != null) return n
@@ -342,7 +370,6 @@ async function resolveSpaceId(mapId, attemptsLog) {
 
   return null
 }
-
 
 // ---------- Booking create ----------
 const PEOPLE_KEYS_ALL = ['attendees','people_count','num_people','participants','people','headcount','pax']
@@ -399,7 +426,7 @@ api.createBooking = async function createBooking({ space_id, title, startLocal, 
   err.status = 404; err.attempts = attempts; throw err
 }
 
-// ---------- My bookings (consistent after refresh; no async in filters) ----------
+// ---------- My bookings ----------
 async function getCurrentUser() { try { return await api.me() } catch { return null } }
 api.myBookings = async function myBookings() {
   const user = await getCurrentUser()
@@ -445,12 +472,11 @@ api.myBookings = async function myBookings() {
   throw new Error(toErrorMessage(lastErrText) || 'No bookings endpoint found')
 }
 
-// ---------- CANCEL (hardened): tries DELETE, action endpoints, and status updates ----------
+// ---------- CANCEL ----------
 api.deleteBooking = async function deleteBooking(id) {
   const attempts = []
   const token = getAuthToken()
 
-  // Helper to parse JSON and detect cancelled status
   async function okIfCancelled(res){
     if ([200,201,202,204].includes(res.status)) return true
     let txt = ''; try { txt = await res.text() } catch {}
@@ -478,14 +504,12 @@ api.deleteBooking = async function deleteBooking(id) {
     { path: '/api/reservations/cancel', body: { id } },
   ]
 
-  // 1) DELETE resource
   for (const p of bases) {
     const res = await raw('DELETE', p, undefined, token)
     attempts.push({ method:'DELETE', path:p, status:res.status, ok:res.ok })
     if (await okIfCancelled(res)) return { ok:true, endpoint:p, attempts }
   }
 
-  // 2) POST/PUT/PATCH to /{id}/cancel
   for (const p of actionBases) {
     for (const m of ['POST','PATCH','PUT']) {
       const res = await raw(m, p, {}, token)
@@ -494,7 +518,6 @@ api.deleteBooking = async function deleteBooking(id) {
     }
   }
 
-  // 3) PATCH/PUT resource with status=cancelled (and optional action)
   for (const p of bases) {
     for (const body of [{status:'cancelled'},{action:'cancel'},{cancel:true}]) {
       for (const m of ['PATCH','PUT','POST']) {
@@ -505,7 +528,6 @@ api.deleteBooking = async function deleteBooking(id) {
     }
   }
 
-  // 4) POST collection-level /cancel with id
   for (const {path, body} of collectionActions) {
     const res = await raw('POST', path, body, token)
     attempts.push({ method:'POST', path, status:res.status, ok:res.ok })
@@ -516,7 +538,7 @@ api.deleteBooking = async function deleteBooking(id) {
   err.status = 404; err.attempts = attempts; throw err
 }
 
-// Day view (unchanged)
+// ---------- Day view ----------
 api.bookingsOn = async function bookingsOn(isoDateStr) {
   const token = getAuthToken()
   const candidates = [
@@ -551,14 +573,10 @@ api.bookingsOn = async function bookingsOn(isoDateStr) {
   return []
 }
 
-// frontend/src/lib/api.js
-// (keep your file exactly as you sent; append the block below to the end)
-
-// ---------- Admin: pending bookings + approve / reject (minimal, robust) ----------
+// ---------- Admin: pending + approve/reject ----------
 api.pendingBookings = async function pendingBookings() {
   const token = getAuthToken()
   const candidates = ['/bookings/pending', '/api/bookings/pending']
-
   for (const p of candidates) {
     try {
       const res = await raw('GET', p, undefined, token)
@@ -573,7 +591,6 @@ api.pendingBookings = async function pendingBookings() {
   }
   return []
 }
-
 api.approveBooking = async function approveBooking(id) {
   const token = getAuthToken()
   const postTargets = [
@@ -586,7 +603,6 @@ api.approveBooking = async function approveBooking(id) {
       if (res.ok) { try { return await res.json() } catch { return { ok:true } } }
     } catch {}
   }
-  // fallback: patch status
   const patchTargets = [
     `/bookings/${id}`, `/api/bookings/${id}`,
     `/reservations/${id}`, `/api/reservations/${id}`,
@@ -599,7 +615,6 @@ api.approveBooking = async function approveBooking(id) {
   }
   throw new Error('Approve failed')
 }
-
 api.rejectBooking = async function rejectBooking(id) {
   const token = getAuthToken()
   const postTargets = [
@@ -612,7 +627,6 @@ api.rejectBooking = async function rejectBooking(id) {
       if (res.ok) { try { return await res.json() } catch { return { ok:true } } }
     } catch {}
   }
-  // fallback: patch status
   const patchTargets = [
     `/bookings/${id}`, `/api/bookings/${id}`,
     `/reservations/${id}`, `/api/reservations/${id}`,
@@ -626,3 +640,5 @@ api.rejectBooking = async function rejectBooking(id) {
   throw new Error('Reject failed')
 }
 
+// ---------- DEV: expose api in console ----------
+if (API_DEBUG && typeof window !== 'undefined') window.api = api

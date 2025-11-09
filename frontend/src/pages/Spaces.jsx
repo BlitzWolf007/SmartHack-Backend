@@ -18,12 +18,22 @@ export default function Spaces(){
     setLoading(true); setError('')
     try{
       const data = await api.spaces?.search?.({
-        type: filters.type || undefined, // minimal: only type sent to API
+        type: filters.type || undefined,
       })
       const arr = Array.isArray(data) ? data : []
       setSpaces(arr)
+
+      // Build lookup for tooltips & bookings (with alias for huddle)
       const map = new Map()
-      for (const s of arr) if (s.ui_map_id) map.set(String(s.ui_map_id), s)
+      for (const s of arr) {
+        if (s.ui_map_id) map.set(String(s.ui_map_id), s)
+
+        // ✅ ALIAS: if a space is a small meeting space, also map huddleN → the same object
+        if (s.ui_type === 'small_meeting_space') {
+          const m = String(s.ui_map_id).match(/^small_meeting_space(\d+)$/)
+          if (m) map.set(`huddle${m[1]}`, s)
+        }
+      }
       infoByMapIdRef.current = map
     }catch(e){
       setError(e?.message || 'Failed to load spaces')
@@ -59,10 +69,9 @@ export default function Spaces(){
       position: fixed; z-index: 9999; pointer-events: none; display: none;
       font-family: "Inter", system-ui, sans-serif;
       font-size: 13px; line-height: 1.35; font-weight: 500;
-      background: rgba(10,15,30,0.96);
-      border: 1px solid rgba(255,220,70,0.25);
-      box-shadow: 0 8px 28px rgba(0,0,0,.45);
-      color: #f8fafc; border-radius: 10px; padding: 10px 12px; backdrop-filter: blur(4px);
+      background: rgba(10,15,30,0.96); border: 1px solid rgba(255,220,70,0.25);
+      box-shadow: 0 8px 28px rgba(0,0,0,.45); color: #f8fafc;
+      border-radius: 10px; padding: 10px 12px; backdrop-filter: blur(4px);
       max-width: 280px;
     `
     doc.body.appendChild(tip)
@@ -94,9 +103,16 @@ export default function Spaces(){
     const s = space
     const type = guessTypeFromId(id)
     const niceType = labelize(s?.ui_type || type || 'Unknown')
+
+    // ✅ Prefer the juice/beer UI label if hovering a synthetic alias (e.g., 'huddle#')
+    let title = s?.name || id
+    if ((id || '').startsWith('huddle') && s?.ui_label) {
+      title = s.ui_label
+    }
+
     let html = `
       <div style="font-weight:600; font-size:14px; margin-bottom:4px; color:#ffdd40;">
-        ${escapeHtml(s?.name || id)}
+        ${escapeHtml(title)}
       </div>
       <div style="margin-bottom:4px; color:#cbd5e1;">${niceType}</div>
     `
@@ -157,6 +173,7 @@ export default function Spaces(){
         el.classList.add('__sel')
         setTimeout(()=>el.classList.remove('__sel'),800)
         zoomTo(el)
+        // keep booking flow the same; alias ensures id resolves to the right object
         nav(`/spaces/${encodeURIComponent(id)}/book`,{state:{space:s||{id,name,type:guessTypeFromId(id)}}})
       }
       el.__onClick=click
@@ -181,43 +198,35 @@ export default function Spaces(){
 
   return (
     <section className="page">
-      <header className="page-header">
+      <header className="page-header" style={{textAlign:'center'}}>
         <h1 style={{color:'#ffdd40'}}>Spaces</h1>
         <p className="helper">Filter, hover for details, click to book.</p>
       </header>
 
       <div className="card" style={{borderColor:'#1e293b', background:'rgba(10,15,30,0.7)'}}>
-        <form onSubmit={e=>{e.preventDefault();load()}}>
-          <div className="grid cols-3">
-            <div className="form-row">
-              <label className="label" htmlFor="type">Type</label>
-              {/* MINIMAL FIX: inline styles ensure dark bg + white text on all UAs */}
-              <select
-                id="type"
-                className="input"
-                value={filters.type}
-                onChange={e=>setFilters({ type:e.target.value })}
-                style={{
-                  background:'#0b1020',
-                  color:'#f8fafc',
-                  border:'1px solid #334155'
-                }}
-              >
-                <option value="">All</option>
-                {(SPACE_TYPES?.length?SPACE_TYPES:MAP_PREFIXES).map(t=>(
-                  <option key={t} value={t}>{labelize(t)}</option>
-                ))}
-              </select>
-            </div>
+        <form onSubmit={e=>{e.preventDefault();load()}} style={{display:'flex', justifyContent:'center'}}>
+          <div className="form-row" style={{minWidth: 260}}>
+            <label className="label" htmlFor="type">Type</label>
+            <select
+              id="type"
+              className="input"
+              value={filters.type}
+              onChange={e=>setFilters({ type:e.target.value })}
+              style={{ background:'#0b1020', color:'#f8fafc', border:'1px solid #334155' }}
+            >
+              <option value="">All</option>
+              {(SPACE_TYPES?.length?SPACE_TYPES:MAP_PREFIXES).map(t=>(
+                <option key={t} value={t}>{labelize(t)}</option>
+              ))}
+            </select>
           </div>
-          <div className="actions">
+          <div className="actions" style={{alignSelf:'end', marginLeft:12}}>
             <button className="btn" type="submit" style={{background:'#ECB03D',border:'none'}}>Apply</button>
           </div>
         </form>
       </div>
 
-      {/* NEW: title before the map */}
-      <h2 style={{ color:'#ffdd40', marginTop: 18, marginBottom: 8 }}>Seats mapping</h2>
+      <h2 style={{ color:'#ffdd40', marginTop: 18, marginBottom: 8, textAlign:'center' }}>Seats mapping</h2>
 
       <div className="map-wrap-full">
         <iframe ref={iframeRef} src="/interactive_map.html" title="Interactive Map" className="map-iframe-full"/>
@@ -225,47 +234,24 @@ export default function Spaces(){
 
       <style>{`
         .map-wrap-full {
-          position: relative;
-          border-radius: 12px;
-          overflow: hidden;
-          margin-top: 8px;
-          border: 1px solid #1e293b;
-          background: #0b1020;
+          position: relative; border-radius: 12px; overflow: hidden;
+          margin-top: 8px; border: 1px solid #1e293b; background: #0b1020;
         }
         .map-iframe-full {
-          width: 100%;
-          height: calc(100vh - 260px);
-          min-height: 70vh;
-          display: block;
-          border: 0;
-          background: #0b1020;
+          width: 100%; height: calc(100vh - 260px); min-height: 70vh;
+          display: block; border: 0; background: #0b1020;
         }
         @media (max-width: 900px) {
           .map-iframe-full { height: calc(100vh - 300px); min-height: 60vh; }
         }
         .label, .helper { color: #f1f5f9; }
 
-        /* MINIMAL GLOBAL FIX: force readable dropdown & menu items */
-        select.input {
-          background: #0b1020 !important;
-          color: #f8fafc !important;
-          border: 1px solid #334155;
-          appearance: none;
-          -moz-appearance: none;
-          -webkit-appearance: none;
-        }
-        select.input option,
-        select.input optgroup {
-          background: #0b1020;
-          color: #f8fafc;
-        }
-        /* Hide old IE arrow just in case */
+        /* readable dropdown + menu items */
+        select.input { background: #0b1020 !important; color: #f8fafc !important; border: 1px solid #334155; }
+        select.input option, select.input optgroup { background: #0b1020; color: #f8fafc; }
         select.input::-ms-expand { display: none; }
 
-        .btn {
-          background: #ECB03D;
-          color: #fff;
-        }
+        .btn { background: #ECB03D; color: #fff; }
       `}</style>
 
       {loading && <div className="helper" style={{marginTop:8}}>Loading spaces…</div>}
