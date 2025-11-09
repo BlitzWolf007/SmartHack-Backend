@@ -10,7 +10,7 @@ export default function Header(){
       <nav className="nav container">
         <div className="brand">
           <img src={logo} alt="Molson Coors" />
-          <h1>TapDesk</h1>
+          <h1>Workspace</h1>
         </div>
         <div className="actions">
           <NavLink to="/dashboard" className={({isActive})=>`btn ghost ${isActive?'accent':''}`}>Dashboard</NavLink>
