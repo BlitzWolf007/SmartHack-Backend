@@ -1,5 +1,5 @@
 // ---------- Config ----------
-const API_BASE = 'https://smarthack-backend.onrender.com:10000';
+const API_BASE = 'https://smarthack-backend.onrender.com';
 
 document.getElementById('api-base').textContent = API_BASE;
 
