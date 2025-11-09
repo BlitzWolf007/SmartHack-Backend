@@ -45,25 +45,14 @@ export default function Spaces(){
     const svg = doc.querySelector('svg')
     if (!svg || doc.__mapStylesInjected) return
     const style = doc.createElementNS('http://www.w3.org/2000/svg','style')
-    // Updated to navy/red/yellow scheme
     style.textContent = `
       .__dim { opacity:.15 !important; pointer-events:none !important; }
-      .__hot {
-        cursor: pointer;
-        transition: filter .15s ease, opacity .15s ease;
-      }
-      .__hot:hover {
-        filter: drop-shadow(0 0 10px rgba(255,220,70,0.8)); /* golden-yellow glow */
-      }
-      .__sel {
-        stroke:#e11d48 !important; /* red highlight */
-        stroke-width:2 !important;
-        filter: drop-shadow(0 0 10px rgba(225,29,72,0.9));
-      }
+      .__hot { cursor:pointer; transition: filter .15s ease, opacity .15s ease; }
+      .__hot:hover { filter: drop-shadow(0 0 10px rgba(255,220,70,0.8)); }
+      .__sel { stroke:#e11d48 !important; stroke-width:2 !important;
+               filter: drop-shadow(0 0 10px rgba(225,29,72,0.9)); }
     `
     svg.appendChild(style)
-
-    // Tooltip (floating div inside iframe)
     const tip = doc.createElement('div')
     tip.id = '__mapTip'
     tip.style.cssText = `
@@ -73,10 +62,7 @@ export default function Spaces(){
       background: rgba(10,15,30,0.96);
       border: 1px solid rgba(255,220,70,0.25);
       box-shadow: 0 8px 28px rgba(0,0,0,.45);
-      color: #f8fafc;
-      border-radius: 10px;
-      padding: 10px 12px;
-      backdrop-filter: blur(4px);
+      color: #f8fafc; border-radius: 10px; padding: 10px 12px; backdrop-filter: blur(4px);
       max-width: 280px;
     `
     doc.body.appendChild(tip)
@@ -205,8 +191,18 @@ export default function Spaces(){
           <div className="grid cols-3">
             <div className="form-row">
               <label className="label" htmlFor="type">Type</label>
-              <select id="type" className="input"
-                value={filters.type} onChange={e=>setFilters({ type:e.target.value })}>
+              {/* MINIMAL FIX: inline styles ensure dark bg + white text on all UAs */}
+              <select
+                id="type"
+                className="input"
+                value={filters.type}
+                onChange={e=>setFilters({ type:e.target.value })}
+                style={{
+                  background:'#0b1020',
+                  color:'#f8fafc',
+                  border:'1px solid #334155'
+                }}
+              >
                 <option value="">All</option>
                 {(SPACE_TYPES?.length?SPACE_TYPES:MAP_PREFIXES).map(t=>(
                   <option key={t} value={t}>{labelize(t)}</option>
@@ -248,11 +244,24 @@ export default function Spaces(){
           .map-iframe-full { height: calc(100vh - 300px); min-height: 60vh; }
         }
         .label, .helper { color: #f1f5f9; }
-        .input, select.input {
-          background: rgba(255,255,255,0.08);
+
+        /* MINIMAL GLOBAL FIX: force readable dropdown & menu items */
+        select.input {
+          background: #0b1020 !important;
+          color: #f8fafc !important;
           border: 1px solid #334155;
+          appearance: none;
+          -moz-appearance: none;
+          -webkit-appearance: none;
+        }
+        select.input option,
+        select.input optgroup {
+          background: #0b1020;
           color: #f8fafc;
         }
+        /* Hide old IE arrow just in case */
+        select.input::-ms-expand { display: none; }
+
         .btn {
           background: #ECB03D;
           color: #fff;
